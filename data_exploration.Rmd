@@ -6,19 +6,95 @@ output: pdf_document
 ---
 
 ```{r setup, include = FALSE}
+library(knitr)
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r load_libraries, include = FALSE}
-library(tidyverse)
+library('tidyverse')
+theme_set(theme_bw())
+library('rnaturalearth')
+library('rnaturalearthdata')
 ```
 
 ```{r load_datasets, include = FALSE}
 datacamp_dataset_repo <- 'https://raw.githubusercontent.com/datacamp/careerhub-data/master'
 
-belgium_train <- read_delim(str_c(datacamp_dataset_repo, '/Belgium%20Train%20Times/belgium-train-times.csv'), delim = ';')
+belgium_train <- read_delim(
+  str_c(datacamp_dataset_repo, '/Belgium%20Train%20Times/belgium-train-times.csv'), 
+  delim = ';'
+)
 coffee <- read_csv(str_c(datacamp_dataset_repo, '/Coffee%20Database/coffee.csv'))
 electricity <- read_csv(str_c(datacamp_dataset_repo, '/Electricity%20Prices/electricity_prices.csv'))
 protest <- read_csv(str_c(datacamp_dataset_repo, '/Mass%20Protest%20Data/protest_data.csv'))
 bike_crashes <- read_csv(str_c(datacamp_dataset_repo, '/Pedestrian%20and%20Bike%20Crashes/pedestrian_bike_crash.csv'))
+```
+
+# Dataset Choices
+
+## Primary choice
+
+The Protest dataset lends itself to many different types of classification and statisical models.  I'm interested to learn from this data, if we can predict if a protest will become violent; to determine what features presented in the dataset are good predictors of violence; comparing multiple models' predictive abilities.
+
+```{r}
+head(protest)
+
+protest %>% 
+  group_by(country) %>%
+  summarize(
+    n_violent_protests = sum(protesterviolence, na.rm = T),
+    n_protests = n(),
+    percent_violent_country = round(n_violent_protests / n() * 100, 2)
+  ) %>% 
+  mutate(
+    percent_violent_world = round(n_violent_protests / sum(n_violent_protests) * 100, 2)
+  ) %>%
+  arrange(
+    desc(percent_violent_world)
+  )
+```
+
+## Secondary choice
+
+The bike_crashes dataset has the most features of the other potential datasets of interest.  data could be visualized on a geographical map.  Models could be developed to classify intersections and streets on their risk/danger of bike crashes.  Subgroup analyses could be done on types of crashes, severity of injury, etc.
+
+```{r}
+head(bike_crashes)
+
+county_bike_crashes <- bike_crashes %>%
+  group_by(County, CrashGrp) %>%
+  summarize(
+    crashes = n_distinct(CrashID)
+  )
+
+NC_map_coords <- map_data("county", "North Carolina") %>% 
+  transmute(
+    lon = long, 
+    lat, 
+    group, 
+    county = str_to_title(subregion)
+  )
+
+NC_bike_crash_map_coords <- NC_map_coords %>%
+  left_join(
+    county_bike_crashes, 
+    by = c('county' = 'County')
+  ) %>% 
+  group_by(county) %>%
+  mutate(
+    crashes = sum(crashes, na.rm=TRUE),
+    log_crashes = log(crashes)
+  )
+
+NC_bike_crash_map_coords %>%
+  ggplot(aes(lon, lat, group = county, fill = crashes)) +
+  geom_polygon(col = 'grey') +
+  scale_fill_continuous(type = "viridis") +
+  coord_quickmap()
+
+NC_bike_crash_map_coords %>%
+  ggplot(aes(lon, lat, group = county, fill = log_crashes)) +
+  geom_polygon(col = 'grey') +
+  scale_fill_continuous(type = "viridis") +
+  coord_quickmap()
 ```
