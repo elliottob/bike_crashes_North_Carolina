@@ -1,0 +1,24 @@
+---
+title: "Data Exploration"
+author: "Elliott O'Brien"
+date: "`R Sys.time()"
+output: pdf_document
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load_libraries, include = FALSE}
+library(tidyverse)
+```
+
+```{r load_datasets, include = FALSE}
+datacamp_dataset_repo <- 'https://raw.githubusercontent.com/datacamp/careerhub-data/master'
+
+belgium_train <- read_delim(str_c(datacamp_dataset_repo, '/Belgium%20Train%20Times/belgium-train-times.csv'), delim = ';')
+coffee <- read_csv(str_c(datacamp_dataset_repo, '/Coffee%20Database/coffee.csv'))
+electricity <- read_csv(str_c(datacamp_dataset_repo, '/Electricity%20Prices/electricity_prices.csv'))
+protest <- read_csv(str_c(datacamp_dataset_repo, '/Mass%20Protest%20Data/protest_data.csv'))
+bike_crashes <- read_csv(str_c(datacamp_dataset_repo, '/Pedestrian%20and%20Bike%20Crashes/pedestrian_bike_crash.csv'))
+```
