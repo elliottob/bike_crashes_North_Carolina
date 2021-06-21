@@ -1,12 +1,12 @@
 ---
 title: "Data Exploration"
 author: "Elliott O'Brien"
-date: "`R Sys.time()"
+date: "`r Sys.time()`"
 output: pdf_document
 ---
 
 ```{r setup, include = FALSE}
-library(knitr)
+library('knitr')
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
@@ -15,52 +15,56 @@ library('tidyverse')
 theme_set(theme_bw())
 library('rnaturalearth')
 library('rnaturalearthdata')
+library('broom')
 ```
 
 ```{r load_datasets, include = FALSE}
 datacamp_dataset_repo <- 'https://raw.githubusercontent.com/datacamp/careerhub-data/master'
 
-belgium_train <- read_delim(
-  str_c(datacamp_dataset_repo, '/Belgium%20Train%20Times/belgium-train-times.csv'), 
-  delim = ';'
-)
-coffee <- read_csv(str_c(datacamp_dataset_repo, '/Coffee%20Database/coffee.csv'))
-electricity <- read_csv(str_c(datacamp_dataset_repo, '/Electricity%20Prices/electricity_prices.csv'))
+# belgium_train <- read_delim(
+#   str_c(datacamp_dataset_repo, '/Belgium%20Train%20Times/belgium-train-times.csv'),
+#   delim = ';'
+# )
+# electricity <- read_csv(str_c(datacamp_dataset_repo, '/Electricity%20Prices/electricity_prices.csv'))
 protest <- read_csv(str_c(datacamp_dataset_repo, '/Mass%20Protest%20Data/protest_data.csv'))
 bike_crashes <- read_csv(str_c(datacamp_dataset_repo, '/Pedestrian%20and%20Bike%20Crashes/pedestrian_bike_crash.csv'))
 ```
 
 # Dataset Choices
 
-## Primary choice
+## Protest Data World-Wide
 
-The Protest dataset lends itself to many different types of classification and statisical models.  I'm interested to learn from this data, if we can predict if a protest will become violent; to determine what features presented in the dataset are good predictors of violence; comparing multiple models' predictive abilities.
+  *   The Protest dataset lends itself to many different types of classification and statistical models
+  *   I'm interested to learn from this data, if we can predict if a protest will become violent; to determine what features presented in the dataset are good predictors of violence; comparing multiple models' predictive abilities
+  *   The large number of features (31), would need to be reduced by PCA or a regularization metric such as lasso or ridge for a linear model
 
-```{r}
-head(protest)
+```{r explore_protest, echo=TRUE, message=FALSE, warning=FALSE}
+glimpse(protest)
 
-protest %>% 
-  group_by(country) %>%
-  summarize(
-    n_violent_protests = sum(protesterviolence, na.rm = T),
-    n_protests = n(),
-    percent_violent_country = round(n_violent_protests / n() * 100, 2)
-  ) %>% 
-  mutate(
-    percent_violent_world = round(n_violent_protests / sum(n_violent_protests) * 100, 2)
-  ) %>%
-  arrange(
-    desc(percent_violent_world)
-  )
+# protest %>%
+#   group_by(country) %>%
+#   summarize(
+#     n_violent_protests = sum(protesterviolence, na.rm = T),
+#     n_protests = n(),
+#     percent_violent_country = round(n_violent_protests / n() * 100, 2)
+#   ) %>%
+#   mutate(
+#     percent_violent_world = round(n_violent_protests / sum(n_violent_protests) * 100, 2)
+#   ) %>%
+#   arrange(
+#     desc(percent_violent_world)
+#   )
 ```
 
-## Secondary choice
+## Bicycle Crash Data in North Carolina
 
-The bike_crashes dataset has the most features of the other potential datasets of interest.  data could be visualized on a geographical map.  Models could be developed to classify intersections and streets on their risk/danger of bike crashes.  Subgroup analyses could be done on types of crashes, severity of injury, etc.
+  *   The bike_crashes dataset has the most features of the other potential datasets of interest
+  *   data could be visualized on a geographical map
+  *   Models could be developed to classify crash severity, intersection and street with high risk/danger of bike crashes
+  *   Subgroup analyses could be done on types of crashes, severity of injury, etc
+  *   The large number of features (61), would need to be reduced by PCA or a regularization metric such as lasso or ridge for a linear model
 
-```{r}
-head(bike_crashes)
-
+```{r explore_bike_crashes, echo=TRUE, message=FALSE, warning=FALSE}
 county_bike_crashes <- bike_crashes %>%
   group_by(County, CrashGrp) %>%
   summarize(
@@ -80,7 +84,7 @@ NC_bike_crash_map_coords <- NC_map_coords %>%
     county_bike_crashes, 
     by = c('county' = 'County')
   ) %>% 
-  group_by(county) %>%
+  group_by(county, ) %>%
   mutate(
     crashes = sum(crashes, na.rm=TRUE),
     log_crashes = log(crashes)
@@ -97,4 +101,202 @@ NC_bike_crash_map_coords %>%
   geom_polygon(col = 'grey') +
   scale_fill_continuous(type = "viridis") +
   coord_quickmap()
+
+########################################################
+### Exploring usability of variables present in data ###
+########################################################
+
+## Variables to remove: ##
+# * X and Y are longitude and latitude which are already present in the data
+# * OBJECTID and OBJECTID_1 seem like a row number id which is not a very useful 
+#   feature.  Also these are duplicated columns.
+# * BikeInjury, DrvrInjury and CrashSevr use similar categories but different 
+#   values in each record.  These columns will need to be observed closely.
+#   since crash severity column has 7 observations where crash_sevr = 'Killed' 
+#   but neither BikeInjury nor DrvrInjury were considered fatal.
+#   Therefore, CrashSevr will be not be counted on.
+
+# # 271 deaths that were biking or driving, mostly bicyclist (269) deaths
+# bike_crashes %>% 
+#   filter(str_detect(BikeInjury, 'K:') | str_detect(DrvrInjury, 'K:'))
+# # 2 driver deaths in the whole dataset
+# bike_crashes %>% 
+#   filter(str_detect(DrvrInjury, 'K:'))
+# # 278 total deaths, 7 deaths that aren't clear since there is no indication if 
+# # bicyclist or driver was killed.
+# bike_crashes %>% 
+#   filter(str_detect(CrashSevr, 'K:')) 
+# # These are the 7 deaths that can't be explained by bicyclist(s) and 
+# # driver(s). There seems to be a third party involved that is not listed in 
+# # records, i.e. other pedestrian or other cyclist that didn't cause the crash 
+# # but was affected by the crash.  It may be good to remove these records since 
+# # they are misleading without more information on how the deaths occurred.
+# bike_crashes %>% 
+#   filter(
+#     str_detect(CrashSevr, 'K:') & 
+#     !str_detect(BikeInjury, 'K:') & 
+#     !str_detect(DrvrInjury, 'K:')
+#    ) 
+
+## Duplicates: ##
+# Note duplicate crash report for CrashID == 1041566349; note that only 
+# CrashLoc and CrashType are different. Based on the first record, the driver is
+# taking a right turn, but listed as non-intersection; in second record, 
+# CrashType is "motorist overtaking - Other/Unknown" and Crash Location is 
+# listed as intersection. Therefore, the CrashLoc was likely an intersection 
+# where a motorist overtook a bicyclist.  This crash record will need to be 
+# fixed to reflect this and remove duplication.
+bike_crashes[duplicated(bike_crashes$CrashID), 'CrashID'] %>% 
+  kable(caption = 'Duplicate Record CrashID')
+bike_crashes %>%
+  filter(CrashID == 104156349) %>%
+  glimpse()
+
+# Fix duplicate record
+bike_crashes <- 
+  bike_crashes %>%
+  filter(CrashID != '104156349') %>%
+  bind_rows(
+    bike_crashes %>% 
+      filter(CrashID == '104156349') %>%
+      slice(1) %>% # grab first record and make changes
+      mutate(
+        CrashLoc = 'Intersection-Related',
+        CrashType = 'Motorist Right Turn - Same Direction',
+        CrashGrp = 'Motorist Right Turn / Merge'
+      )
+  )
+
+glimpse(bike_crashes)
+```
+
+### Data Preparation
+
+```{r clean_data, echo=TRUE, message=FALSE, warning=FALSE}
+bike_crashes_clean <- 
+  bike_crashes %>%
+  select(-X, -Y, -OBJECTID_1, -OBJECTID) %>%
+  mutate(
+    BikeAge = as.numeric(BikeAge),
+    # unlikely anyone over 100 years old
+    BikeAge = if_else(BikeAge > 100 | BikeAge == 'Unknown', NA_real_, BikeAge),
+    BikeAgeGrp = case_when(
+      BikeAgeGrp == '06-Oct' ~ '6-10',
+      BikeAgeGrp == 'Nov-15' ~ '11-15',
+      BikeAgeGrp == 'Unknown' ~ NA_character_,
+      TRUE ~ BikeAgeGrp
+    ),
+    BikeAlcDrg = case_when(
+      BikeAlcDrg == '.' ~ NA_character_,
+      BikeAlcDrg == 'Missing' ~ NA_character_,
+      BikeAlcDrg == 'Unknown' ~ NA_character_,
+      TRUE ~ BikeAlcDrg
+    ),
+    BikeAlcFlg = case_when(
+      BikeAlcFlg == 'Missing' ~ NA_character_,
+      BikeAlcFlg == 'Unknown' ~ NA_character_,
+      TRUE ~ BikeAlcFlg
+    ),
+    BikeDir = if_else(BikeDir == 'Unknown', NA_character_, BikeDir),
+    BikePos = if_else(BikePos == 'Unknown', NA_character_, BikePos),
+    BikeRace = if_else(BikeRace == 'Unknown/Missing', NA_character_, BikeRace),
+    BikeSex = if_else(BikeSex == 'Unknown', NA_character_, BikeSex),
+    CrashGrp = if_else(CrashGrp == 'Other / Unknown - Insufficient Details', NA_character_, CrashGrp),
+    CrashLoc = if_else(CrashLoc == 'Unknown Location', NA_character_, CrashLoc),
+    CrashDay = factor(CrashDay,
+      levels = c('Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday')
+    ),
+    CrashMonth = factor(CrashMonth,
+      levels = c('January', 'February', 'March' ,'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December')
+    ),
+    CrashType = if_else(CrashType %in% c('Unknown Approach Paths', 'Unknown Location'), NA_character_, CrashType),
+    DrvrAge = as.numeric(DrvrAge),
+    # unlikely anyone over 100 years old
+    DrvrAge = if_else(DrvrAge > 100 | DrvrAge == '70+' | DrvrAge == 'Unknown', NA_real_, DrvrAge),
+    DrvrAgeGrp = if_else(DrvrAgeGrp == 'Unknown', NA_character_, DrvrAgeGrp),
+    DrvrAlcDrg = case_when(
+      DrvrAlcDrg == '.' ~ NA_character_,
+      DrvrAlcDrg == 'Missing' ~ NA_character_,
+      DrvrAlcDrg == 'Unknown' ~ NA_character_,
+      TRUE ~ DrvrAlcDrg
+    ),
+    DrvrAlcFlg = case_when(
+      DrvrAlcFlg == 'Missing' ~ NA_character_,
+      DrvrAlcFlg == 'Unknown' ~ NA_character_,
+      TRUE ~ DrvrAlcFlg
+    ),
+    DrvrRace = if_else(DrvrRace == 'Unknown/Missing', NA_character_, DrvrRace),
+    DrvrSex = if_else(DrvrSex == 'Unknown', NA_character_, DrvrSex),
+    LightCond = if_else(LightCond == 'Unknown', NA_character_, LightCond),
+    NumBicsAin = if_else(NumBicsAin == '.', NA_character_, NumBicsAin),
+    NumBicsBin = if_else(NumBicsBin == '.', NA_character_, NumBicsBin),
+    NumBicsCin = if_else(NumBicsCin == '.', NA_character_, NumBicsCin),
+    NumBicsKil = if_else(NumBicsKil == '.', NA_character_, NumBicsKil),
+    NumBicsNoi = if_else(NumBicsNoi == '.', NA_character_, NumBicsNoi),
+    NumBicsUin = if_else(NumBicsUin == '.', NA_character_, NumBicsUin),
+    NumBicsTot = if_else(NumBicsTot == '.', NA_character_, NumBicsTot),
+    NumLanes = if_else(NumLanes == 'Unknown', NA_character_, NumLanes),
+    NumLanes = if_else(NumLanes == '9 or more lanes', '9+ lanes', NumLanes),
+    NumLanes = factor(NumLanes, 
+      levels = c('1 lane', '2 lanes', '3 lanes', '4 lanes', '5 lanes', '6 lanes', '7 lanes', '8 lanes', '9+ lanes')
+    ),
+    RdCharacte = if_else(RdCharacte == 'Unknown', NA_character_, RdCharacte),
+    RdClass = if_else(RdClass %in% c('.', 'missing', 'Unknown'), NA_character_, RdClass),
+    RdConditio = if_else(RdConditio == 'Unknown', NA_character_, RdConditio),
+    RdConfig = if_else(RdConfig == 'Unknown', NA_character_, RdConfig),
+    RdDefects = if_else(RdDefects %in% c('Unknown', 'Missing'), NA_character_, RdDefects),
+    RdFeature = if_else(RdFeature == 'Missing', NA_character_, RdFeature),
+    RdSurface = if_else(RdSurface %in% c('Unknown', 'Missing'), NA_character_, RdSurface),
+    RuralUrban = if_else(RuralUrban == '.', NA_character_, RuralUrban),
+    SpeedLimit = if_else(SpeedLimit == 'Unknown', NA_character_, SpeedLimit),
+    SpeedLimit = str_replace(SpeedLimit, '\\s{2}', ' '), # extra spaces between meaure and units have been removed
+    SpeedLimit = factor(SpeedLimit,
+      levels = c('5 - 15 MPH', '20 - 25 MPH', '30 - 35 MPH', '40 - 45 MPH', '50 - 55 MPH', '60 - 75 MPH')
+    ),
+    TraffCntrl = if_else(TraffCntrl == 'Missing', NA_character_, TraffCntrl)
+  ) %>%
+  # transform char columns that need to be split
+  separate(
+    col = BikeInjury,
+    into = c('BikeInjuryCat', 'BikeInjuryDisc'),
+    sep = ': '
+  ) %>%
+  separate(
+    col = CrashSevr,
+    into = c('CrashSevrCat', 'CrashSevrDisc'),
+    sep = ': '
+  ) %>%
+  separate(
+    col = DrvrInjury,
+    into = c('DrvrInjuryCat', 'DrvrInjuryDisc'),
+    sep = ': '
+  ) %>%
+  mutate(
+    BikeInjuryCat = if_else(BikeInjuryCat == 'Unknown Injury', 'U', BikeInjuryCat),
+    BikeInjuryDisc = if_else(is.na(BikeInjuryDisc), 'Unknown Injury', BikeInjuryDisc),
+    CrashSevrCat = if_else(CrashSevrCat == 'Unknown Injury', 'U', CrashSevrCat),
+    CrashSevrDisc = if_else(is.na(CrashSevrDisc), 'Unknown Injury', CrashSevrDisc),
+    DrvrInjuryCat = if_else(DrvrInjuryCat == 'Unknown Injury', 'U', DrvrInjuryCat),
+    DrvrInjuryDisc = if_else(is.na(DrvrInjuryDisc), 'Unknown Injury', DrvrInjuryDisc)
+  ) %>%
+  # group specific calculations and imputations
+  group_by(BikeAgeGrp) %>%
+  mutate(
+    # median imputation for age group 70+
+    BikeAge = if_else(is.na(BikeAge), median(BikeAge, na.rm = T), BikeAge)
+  ) %>%
+  ungroup() %>%
+  group_by(DrvrAgeGrp) %>%
+  mutate(
+    # median imputation for age (years) recorded as 70+
+    DrvrAge = if_else(is.na(DrvrAge), median(DrvrAge, na.rm = T), DrvrAge)
+  ) %>%
+  ungroup() %>%
+  mutate(
+    across(is.character, ~ as.factor(.x))
+  )
+
+glimpse(bike_crashes_clean)
+
+saveRDS(bike_crashes_clean, './derived_data/bike_crashes_clean.rds')
 ```

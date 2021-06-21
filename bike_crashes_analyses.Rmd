@@ -1,0 +1,20 @@
+---
+title: "Bike Crash Analyses"
+author: "Elliott O'Brien"
+date: "`R Sys.time()"
+output: pdf_document
+---
+
+```{r setup, include = FALSE}
+library('knitr')
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load_libraries, include = FALSE}
+library('tidyverse')
+theme_set(theme_bw())
+library('rnaturalearth')
+library('rnaturalearthdata')
+```
+
+

@@ -1,5 +1,9 @@
+# R/Rstudio specific files
 .Rproj.user
 .Rhistory
-.RData
+.Rdata
 .Ruserdata
+# file names and extensions
+*.pdf
+# folders
 /project_info
