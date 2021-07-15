@@ -16,6 +16,7 @@ theme_set(theme_bw())
 library('rnaturalearth')
 library('rnaturalearthdata')
 library('broom')
+library('caret')
 ```
 
 ```{r load_datasets, include = FALSE}
@@ -59,9 +60,9 @@ glimpse(protest)
 ## Bicycle Crash Data in North Carolina
 
   *   The bike_crashes dataset has the most features of the other potential datasets of interest
-  *   data could be visualized on a geographical map
+  *   some data/stats could be visualized on a geographical map
   *   Models could be developed to classify crash severity, intersection and street with high risk/danger of bike crashes
-  *   Subgroup analyses could be done on types of crashes, severity of injury, etc
+  *   Subgroup analyses could be done on types of crashes, county, city, region, etc.
   *   The large number of features (61), would need to be reduced by PCA or a regularization metric such as lasso or ridge for a linear model
 
 ```{r explore_bike_crashes, echo=TRUE, message=FALSE, warning=FALSE}
@@ -115,7 +116,8 @@ NC_bike_crash_map_coords %>%
 #   since crash severity column has 7 observations where crash_sevr = 'Killed' 
 #   but neither BikeInjury nor DrvrInjury were considered fatal.
 #   Therefore, CrashSevr will be not be counted on.
-
+bike_crashes <- bike_crashes %>%
+  select(-X, -Y, -matches('OBJECT'), -DrvrInjury, -CrashSevr)
 # # 271 deaths that were biking or driving, mostly bicyclist (269) deaths
 # bike_crashes %>% 
 #   filter(str_detect(BikeInjury, 'K:') | str_detect(DrvrInjury, 'K:'))
@@ -175,7 +177,6 @@ glimpse(bike_crashes)
 ```{r clean_data, echo=TRUE, message=FALSE, warning=FALSE}
 bike_crashes_clean <- 
   bike_crashes %>%
-  select(-X, -Y, -OBJECTID_1, -OBJECTID) %>%
   mutate(
     BikeAge = as.numeric(BikeAge),
     # unlikely anyone over 100 years old
@@ -210,6 +211,8 @@ bike_crashes_clean <-
       levels = c('January', 'February', 'March' ,'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December')
     ),
     CrashType = if_else(CrashType %in% c('Unknown Approach Paths', 'Unknown Location'), NA_character_, CrashType),
+    CrashType = str_replace_all(CrashType, '\\s|-|/', '.'),
+    CrashType = str_replace_all(CrashType, '\\.{2,}', '.'),
     DrvrAge = as.numeric(DrvrAge),
     # unlikely anyone over 100 years old
     DrvrAge = if_else(DrvrAge > 100 | DrvrAge == '70+' | DrvrAge == 'Unknown', NA_real_, DrvrAge),
@@ -261,23 +264,26 @@ bike_crashes_clean <-
     into = c('BikeInjuryCat', 'BikeInjuryDisc'),
     sep = ': '
   ) %>%
-  separate(
-    col = CrashSevr,
-    into = c('CrashSevrCat', 'CrashSevrDisc'),
-    sep = ': '
-  ) %>%
-  separate(
-    col = DrvrInjury,
-    into = c('DrvrInjuryCat', 'DrvrInjuryDisc'),
-    sep = ': '
-  ) %>%
   mutate(
     BikeInjuryCat = if_else(BikeInjuryCat == 'Unknown Injury', 'U', BikeInjuryCat),
     BikeInjuryDisc = if_else(is.na(BikeInjuryDisc), 'Unknown Injury', BikeInjuryDisc),
-    CrashSevrCat = if_else(CrashSevrCat == 'Unknown Injury', 'U', CrashSevrCat),
-    CrashSevrDisc = if_else(is.na(CrashSevrDisc), 'Unknown Injury', CrashSevrDisc),
-    DrvrInjuryCat = if_else(DrvrInjuryCat == 'Unknown Injury', 'U', DrvrInjuryCat),
-    DrvrInjuryDisc = if_else(is.na(DrvrInjuryDisc), 'Unknown Injury', DrvrInjuryDisc)
+    # create dichotomous response variable in case multinomial isn't fruitful
+    BikeInjuryDichot = case_when(
+      BikeInjuryCat %in% c('A' ,'K') ~ 1, 
+      BikeInjuryCat %in% c('B', 'C', 'O') ~ 0,
+      BikeInjuryCat %in% c('U') ~ NA_real_
+    ),
+    BikeInjuryDichotDisc = if_else(
+      BikeInjuryDichot == 1, 'serious injury', 'nonserious injury'
+    ),
+    BikeInjuryDichotFct = factor(BikeInjuryDichotDisc, levels = c('serious injury', 'nonserious injury'))
+  ) %>%
+  filter(
+    !is.na(BikeInjuryDichot)
+  ) %>%
+  mutate(
+    BikeInjuryCat = fct_drop(BikeInjuryCat, 'U'),
+    BikeInjuryDisc = fct_drop(BikeInjuryDisc, 'Unknown Injury')
   ) %>%
   # group specific calculations and imputations
   group_by(BikeAgeGrp) %>%
@@ -298,5 +304,129 @@ bike_crashes_clean <-
 
 glimpse(bike_crashes_clean)
 
+# find and remove any variables with less than 2 factors
+bike_crashes_clean %>% 
+  select(where(~is.factor(.x) & length(levels(.x)) < 2))
+bike_crashes_clean <- bike_crashes_clean %>% select(-NumBicsUin) 
+
+# percent of missing data in each column
+bike_crashes_clean %>%
+  map(~ round(sum(is.na(.x)) / nrow(bike_crashes_clean) * 100, 1)) %>%
+  as_tibble()
+
+```
+
+### Zero and Near-zero variance Variables
+
+```{r}
+# Check which variables are zero or near-zero variance
+nearZeroVar(bike_crashes_clean, saveMetrics=TRUE) %>%
+  filter(zeroVar | nzv) %>%
+  kable(caption = 'Zero / Non-zero Variance Variables')
+# these will be left in so that PCA can attempt to use this information
+
+# The near zero variables will be removed since cross-validation may create 
+# underrepresented folds
+bike_crashes_clean <- bike_crashes_clean %>% 
+  select(
+    -matches('Alc'), 
+    -matches('NumBics'),
+    -NumUnits, 
+    -RdDefects, 
+    -Workzone
+  )
+
+bike_crashes_clean %>% glimpse()
+```
+
+### Create Dummy Variables
+
+Use these dummy variables (numerical) to investigate correlated variables
+
+```{r}
+bike_crash_dummies_mdl <- dummyVars(
+  # keep BikeInjuryDichot in the matrix since already numeric
+  ~ ., 
+  data = bike_crashes_clean,
+  sep = '.'
+)
+
+bike_crash_dummies <- predict(
+  bike_crash_dummies_mdl, 
+  newdata = bike_crashes_clean
+) 
+
+bike_crash_dummies <- bike_crash_dummies %>% 
+  as_tibble() %>%
+  rename_with(
+    function(x) {
+      tmp <- str_replace_all(x, '\\s|/|-', '.')
+      tmp <- str_replace_all(tmp, '\\(|\\)|\\+|\\,', '')
+      tmp <- str_replace_all(tmp, '>', 'GT')
+      tmp <- str_replace_all(tmp, '<', 'LT')
+      tmp <- str_replace_all(tmp, '%', 'pct')
+      tmp <- str_replace_all(tmp, '\\.{2,}', '.')
+    }
+  )
+
+bike_crash_dummies %>% glimpse()
+```
+
+### Correlated Variables
+
+```{r}
+# if we look at correlation we'll have to use complete cases
+# let's see what variables have the most missing data
+# since approximately 13-14% are missing at most complete.obs should be fine
+bike_crash_dummies %>%
+  map(~ round(sum(is.na(.x)) / nrow(bike_crash_dummies) * 100, 1)) %>%
+  as_tibble() %>%
+  select(where(~ .x > 10))
+
+# after filtering for complete cases, how many variables have zero variance?
+bike_crash_dummies %>%
+  filter(complete.cases(.)) %>%
+  nearZeroVar(., saveMetrics=TRUE) %>%
+  filter(zeroVar)
+
+# compute correlation after removing zero variance variables
+bike_crash_dummies_cor <- cor(
+  bike_crash_dummies %>%
+    select(
+      -BikeInjuryDichot, # don't check the response variable
+      -matches('City'), 
+      -matches('(ATV)'), 
+      -matches('Pedalcycle'), 
+      -matches('Pedestrian'),
+      -RdConditio.Other
+    ),
+  use = 'complete.obs'
+)
+# find variables with high pair-wise correlation to potentially remove
+correlated_vars <- findCorrelation(
+  bike_crash_dummies_cor, 
+  cutoff = .75, 
+  names = TRUE
+)
+
+# remove highly correlated variables of interest and zero var. variables
+bike_crash_dummies <- bike_crash_dummies %>%
+  select(
+    -correlated_vars,
+    -matches('Disc'), # related to BikeInjuryDichot
+    -matches('City'), 
+    -matches('(ATV)'), 
+    -matches('Pedalcycle'), 
+    -matches('Pedestrian'),
+    -RdConditio.Other
+  ) 
+
+bike_crash_dummies %>% 
+  glimpse()
+```
+### Save Datasets
+
+```{r}
 saveRDS(bike_crashes_clean, './derived_data/bike_crashes_clean.rds')
+saveRDS(bike_crash_dummies, './derived_data/bike_crash_dummies.rds')
 ```
