@@ -30,6 +30,12 @@ my_default_control <- trainControl(
 )
 ```
 
+# Data Preparation (separate file)
+
+```{r}
+rmarkdown::render('data_exploration.Rmd')
+```
+
 # Pre-Processing and Model Setup
 
 Using the caret package, a pre-processing step will be used to remove near-zero
@@ -326,25 +332,42 @@ modelCor(resamples(model_list))
 
 ```{r}
 # performance function
-mdl_performance <- function(mdl) {
+mdl_performance <- function(mdl, conf_matrix = FALSE, ensemble = FALSE, mdl_lst = NULL) {
   
+  mdl_predictors <- NULL
+  mdl_test_dat <- NULL
+  if(ensemble) {
+    mdl_predictors <- map(mdl_lst, predictors) %>% flatten() %>% unlist() %>% unique()
+    mdl_test_dat <- test_dat[complete.cases(test_dat[, names(test_dat) %in% mdl_predictors]),]$BikeInjuryDichot
+  } else {
+    mdl_predictors <- attr(formula(mdl), 'term.labels')
+    mdl_test_dat <- test_dat[complete.cases(test_dat[, names(test_dat) %in% mdl_predictors]),]$BikeInjuryDichot
+  }
+    
   mdl_pred <- predict(mdl, newdata = test_dat)
-  
-  print(length(mdl_pred))
-  print(length(test_dat[complete.cases(test_dat[,names(test_dat) %in% predictors(mdl)]),]$BikeInjuryDichot))
-  
-  conf_mat <- confusionMatrix(
-    factor(mdl_pred, levels = c('Serious', 'Non.Serious')),
-    test_dat[complete.cases(test_dat[,names(test_dat) %in% predictors(mdl)]),]$BikeInjuryDichot
-  )
+
+  conf_mat <- NULL
+  if(conf_matrix) {
+    conf_mat <- confusionMatrix(
+      factor(mdl_pred, levels = c('Serious', 'Non.Serious')),
+      factor(mdl_test_dat, levels = c('Serious', 'Non.Serious'))
+    )
+  }
   
   mdl_pred_prob <- predict(mdl, newdata = test_dat, type = 'prob')
-  
-  perf <- 
-    tibble(
+  if(ensemble) {
+    mdl_pred_prob <- tibble(
+      Serious = mdl_pred_prob
+    ) %>%
+    mutate(
+      Non.Serious = 1 - Serious
+    ) 
+  }
+
+  perf <- tibble(
       p = seq(.01, 0.99, by = .01),
       mdl_prob = list(mdl_pred_prob),
-      obs = list(test_dat[complete.cases(test_dat[,names(test_dat) %in% predictors(mdl)]),]$BikeInjuryDichot)
+      obs = list(mdl_test_dat)
     ) %>%
     mutate(
       pred = map2(
@@ -355,7 +378,7 @@ mdl_performance <- function(mdl) {
         }
       )
     ) %>% 
-      unnest(obs, pred) %>%
+      unnest(c(obs, pred)) %>%
       group_by(p) %>%
       summarize(
         n_TP = sum(obs == 'Serious' & pred == obs),
@@ -394,25 +417,24 @@ mdl_performance <- function(mdl) {
 
 ```{r}
 # Logistic Classification
-mdl_performance(binom_mdl)
-predictors(binom_mdl)
+mdl_performance(binom_mdl, conf_matrix = TRUE)
 
 # Logistic Classification with PCA 
-mdl_performance(binom_PCA_mdl)
+mdl_performance(binom_PCA_mdl, conf_matrix = TRUE)
 ```
 
 ### Non-linear Predictions
 
 ```{r}
 # Naive Bayes
-mdl_performance(nb_mdl)
+mdl_performance(nb_mdl, conf_matrix = TRUE)
 
 # Random Forest 
-mdl_performance(rf_mdl)
+mdl_performance(rf_mdl, conf_matrix = TRUE)
 ```
 
-# Ensemble Predictions
+### Ensemble Predictions
 
 ```{r}
-mdl_performance(ensemble_mdl)
+mdl_performance(ensemble_mdl, ensemble = TRUE, mdl_lst = model_list)
 ```
