@@ -18,6 +18,7 @@ library('rnaturalearthdata')
 
 # Machine-learning and stats packages
 library('caret')
+library('caretEnsemble')
 library('ranger')
 library('doParallel')
 
@@ -66,6 +67,7 @@ bike_crash_dummies %>%
 # Split Data into training and testing dataset #
 ################################################
 set.seed(24)
+
 train_index <- createDataPartition(bike_crash_dummies$BikeInjuryDichot, p = .8, list=FALSE)
 train_dat <- bike_crash_dummies[train_index,]
 test_dat <- bike_crash_dummies[-train_index,]
@@ -93,8 +95,12 @@ preproc_mdl <- preProcess(
     select(-BikeInjuryDichot) %>% 
     as.data.frame,
   # centering and scaling done by knnImpute
-  method = c('nzv', 'knnImpute')
+  method = c(
+    'nzv'#, 
+    # 'knnImpute'
+  )
 )
+
 preproc_mdl
 # preproc_mdl$method
 
@@ -129,49 +135,55 @@ test_dat <-
 # Check Missing Values #
 ########################
 
-# percent of missing data in each column
+# percent of missing data in each column with > 10% missing
 bike_crashes_preProcessed %>%
   map(~ round(sum(is.na(.x)) / nrow(bike_crashes_preProcessed) * 100, 1)) %>%
   as_tibble() %>%
-  select(where(~.x > 10))
-
-## all variables have been imputed, with no missing values after KNN imputation.
+  select(where(~.x > 10)) %>%
+  kable(caption = 'Percent Missing Values (w/ more than 10% missing)')
 
 # Serious Injuries are rare events, consider using down/up sampling
 bike_crashes_preProcessed %>% 
   count(BikeInjuryDichot) %>% 
   mutate(pct = n / sum(n) * 100) %>%
-  kable(caption = 'preprocessed training data class summary')
+  kable(caption = 'Preprocessed training data class summary')
 
 test_dat %>% 
   count(BikeInjuryDichot) %>% 
   mutate(pct = n / sum(n) * 100) %>%
-  kable(caption = 'test data data class summary')
+  kable(caption = 'Test data data class summary')
 ```
 
-## Binomial Logistic-Regression 
+## Modeling
+
+### Linear Classifiers 
 
 ```{r}
-# cross validation methods
+# caret control
 binomial_control <- trainControl(
   summaryFunction = twoClassSummary,
   classProbs = TRUE,
-  savePredictions = TRUE,
+  savePredictions = 'final',
   sampling = 'up',
   method = 'repeatedcv',
-  repeats = 5
+  repeats = 3
 )
 
 set.seed(42)
 
-# Model using preprocessed features
+
+######################################
+# Elasticnet Logistic Classification #
+######################################
+# timing process
+a <- Sys.time()
+# create clusters
 cl <- makeCluster(7)
 registerDoParallel(cl)
 
 binom_mdl <- train(
   BikeInjuryDichot ~ .,
-  data = bike_crashes_preProcessed %>%
-    select(-AmbulanceR.Yes),
+  data = bike_crashes_preProcessed,
   method = 'glmnet',
   family = 'binomial',
   na.action = na.omit,
@@ -179,15 +191,21 @@ binom_mdl <- train(
   tuneLenth = 20
 )
 stopCluster(cl)
+b <- Sys.time()
+binom_time <- b - a
+print(binom_time)
 
-# Model using principal components
+#################################################################
+# Elasticnet Logistic Classification using Principal Components #
+#################################################################
+# timing process
+a <- Sys.time()
+# create clusters
 cl <- makeCluster(7)
 registerDoParallel(cl)
-
 binom_PCA_mdl <- train(
   BikeInjuryDichot ~ .,
-  data = bike_crashes_preProcessed %>%
-    select(-AmbulanceR.Yes),
+  data = bike_crashes_preProcessed,
   method = 'glmnet',
   family = 'binomial',
   preProcess = c('pca'),
@@ -196,118 +214,205 @@ binom_PCA_mdl <- train(
   tuneLength = 20
 )
 stopCluster(cl)
-
-###############
-# Predictions #
-###############
-
-binom_mdl_pred <- predict(binom_mdl, newdata = test_dat, type = 'prob')
-
-binom_mdl_pred <- binom_mdl_pred %>%
-  mutate(
-    pred1 = factor(if_else(Non.Serious < .9999, 'Serious', 'Non.Serious'), levels = c('Serious', 'Non.Serious')),
-    pred2 = factor(if_else(Non.Serious < .999, 'Serious', 'Non.Serious'), levels = c('Serious', 'Non.Serious')),
-    pred3 = factor(if_else(Non.Serious < .99, 'Serious', 'Non.Serious'), levels = c('Serious', 'Non.Serious'))
-  )
-
-confusionMatrix(
-  binom_mdl_pred$pred1,
-  test_dat[complete.cases(test_dat),]$BikeInjuryDichot
-)
-
-confusionMatrix(
-  binom_mdl_pred$pred2,
-  test_dat[complete.cases(test_dat),]$BikeInjuryDichot
-)
-
-confusionMatrix(
-  binom_mdl_pred$pred3,
-  test_dat[complete.cases(test_dat),]$BikeInjuryDichot
-)
-
-# PCA variables missing since partitioning was done before PCA
-binom_PCA_mdl_pred <- predict(binom_PCA_mdl, newdata = test_dat, type = 'prob')
-
-binom_PCA_mdl_pred <- binom_PCA_mdl_pred %>%
-  mutate(
-    pred1 = factor(if_else(Non.Serious < .9999, 'Serious', 'Non.Serious'), levels = c('Serious', 'Non.Serious')),
-    pred2 = factor(if_else(Non.Serious < .999, 'Serious', 'Non.Serious'), levels = c('Serious', 'Non.Serious')),
-    pred3 = factor(if_else(Non.Serious < .99, 'Serious', 'Non.Serious'), levels = c('Serious', 'Non.Serious'))
-  )
-
-confusionMatrix(
-  binom_PCA_mdl_pred$pred1,
-  test_dat[complete.cases(test_dat),]$BikeInjuryDichot
-)
-
-confusionMatrix(
-  binom_PCA_mdl_pred$pred2,
-  test_dat[complete.cases(test_dat),]$BikeInjuryDichot
-)
-
-confusionMatrix(
-  binom_PCA_mdl_pred$pred3,
-  test_dat[complete.cases(test_dat),]$BikeInjuryDichot
-)
+b <- Sys.time()
+binom_PCA_time <- b - a
+print(binom_PCA_time)
 ```
 
-## Non-linear Classifcation Models (Random Forests)
+### Non-linear Classifcation Models (Random Forests)
 
 ```{r}
-
-# Cross-Validation Methods
-binomial_control <- trainControl(
-  summaryFunction = twoClassSummary,
-  classProbs = TRUE,
-  savePredictions = TRUE,
-  # # balance the response classes
-  sampling = 'up',
-  method = 'repeatedcv',
-  repeats = 3
-)
-
 set.seed(42)
 
-# Parallel Coding (comment out if not using)
+###############
+# Naive Bayes #
+###############
+# timing process
+a <- Sys.time()
+# create clusters
 cl <- makeCluster(7)
 registerDoParallel(cl)
-# serious injury is a rare event, let's use weights in resampling
-
-rf_mdl <- train(
+nb_mdl <- train(
   BikeInjuryDichot ~ .,
-  data = bike_crashes_preProcessed %>% 
-    select(-AmbulanceR.Yes),
-  method = 'ranger',
+  data = bike_crashes_preProcessed,
+  method = 'naive_bayes',
+  na.action = na.omit,
   trControl = binomial_control
 )
 stopCluster(cl)
+b <- Sys.time()
+nb_time <- b - a
+print(nb_time)
 
-# Predictions
-rf_mdl_pred <- predict(rf_mdl, newdata = test_dat, type = 'prob')
-confusionMatrix(
-  rf_mdl_pred,
-  test_dat[complete.cases(test_dat),]$BikeInjuryDichot
+#################
+# Random Forest #
+#################
+# timing process
+a <- Sys.time()
+# create clusters
+cl <- makeCluster(7)
+registerDoParallel(cl)
+rf_mdl <- train(
+  BikeInjuryDichot ~ .,
+  data = bike_crashes_preProcessed,
+  method = 'ranger',
+  na.action = na.omit,
+  trControl = binomial_control
 )
+stopCluster(cl)
+b <- Sys.time()
+rf_time <- b - a
+print(rf_time)
+```
 
-rf_mdl_pred <- rf_mdl_pred %>%
-  mutate(
-    pred1 = factor(if_else(Serious > .4475, 'Serious', 'Non.Serious'), levels = c('Serious', 'Non.Serious')),
-    pred2 = factor(if_else(Serious > .45, 'Serious', 'Non.Serious'), levels = c('Serious', 'Non.Serious')),
-    pred3 = factor(if_else(Serious > .4525, 'Serious', 'Non.Serious'), levels = c('Serious', 'Non.Serious'))
+### Emsemble Classifier
+
+Logistic Regression Naive Bayes will be used in an ensemble learning model.
+Note that random forests took the longest to run with no improvement in accuracy
+and is not used in the ensemble reason for these reasons.
+
+```{r}
+set.seed(42)
+
+# timing process
+a <- Sys.time()
+# create clusters
+cl <- makeCluster(7)
+registerDoParallel(cl)
+model_list <- caretList(
+  BikeInjuryDichot ~ .,
+  data = bike_crashes_preProcessed %>%
+    filter(complete.cases(.)),
+  tuneList = list(
+    binom_mdl = caretModelSpec(
+      method = 'glmnet',
+      family = 'binomial',
+      tuneLength = 20
+    ),
+    nb_mdl = caretModelSpec(method = 'naive_bayes')
+  ),
+  trControl = trainControl(
+    summaryFunction = twoClassSummary,
+    classProbs = TRUE,
+    savePredictions = 'final',
+    sampling = 'up',
+    method = 'repeatedcv',
+    repeats = 3
   )
-
-confusionMatrix(
-  rf_mdl_pred$pred1,
-  test_dat[complete.cases(test_dat),]$BikeInjuryDichot
 )
+stopCluster(cl)
 
-confusionMatrix(
-  rf_mdl_pred$pred2,
-  test_dat[complete.cases(test_dat),]$BikeInjuryDichot
+cl <- makeCluster(7)
+registerDoParallel(cl)
+ensemble_mdl <- caretEnsemble(
+  model_list, 
+  metric = 'ROC',
+  trControl = trainControl(
+    summaryFunction = twoClassSummary,
+    classProbs = TRUE
+  )
 )
+stopCluster(cl)
+b <- Sys.time()
+ensemble_time <- b - a
+print(ensemble_time)
 
-confusionMatrix(
-  rf_mdl_pred$pred3,
-  test_dat[complete.cases(test_dat),]$BikeInjuryDichot
-)
+ensemble_mdl
+ggplot(resamples(model_list))
+modelCor(resamples(model_list))
+```
+
+## Predictions
+
+```{r}
+# performance function
+mdl_performance <- function(mdl) {
+  
+  mdl_pred <- predict(mdl, newdata = test_dat)
+  
+  print(length(mdl_pred))
+  print(length(test_dat[complete.cases(test_dat[,names(test_dat) %in% predictors(mdl)]),]$BikeInjuryDichot))
+  
+  conf_mat <- confusionMatrix(
+    factor(mdl_pred, levels = c('Serious', 'Non.Serious')),
+    test_dat[complete.cases(test_dat[,names(test_dat) %in% predictors(mdl)]),]$BikeInjuryDichot
+  )
+  
+  mdl_pred_prob <- predict(mdl, newdata = test_dat, type = 'prob')
+  
+  perf <- 
+    tibble(
+      p = seq(.01, 0.99, by = .01),
+      mdl_prob = list(mdl_pred_prob),
+      obs = list(test_dat[complete.cases(test_dat[,names(test_dat) %in% predictors(mdl)]),]$BikeInjuryDichot)
+    ) %>%
+    mutate(
+      pred = map2(
+        p, 
+        mdl_prob,
+        function(p, probs) {
+          if_else(probs$Serious > p, 'Serious', 'Non.Serious')
+        }
+      )
+    ) %>% 
+      unnest(obs, pred) %>%
+      group_by(p) %>%
+      summarize(
+        n_TP = sum(obs == 'Serious' & pred == obs),
+        n_obs_P = sum(obs == 'Serious'),
+        sensitivity = n_TP / n_obs_P,
+        n_TN = sum(obs == 'Non.Serious' & pred == obs),
+        n_obs_N = sum(obs == 'Non.Serious'),
+        specificity = n_TN / n_obs_N,
+        accuracy = (n_TP + n_TN) / (n_obs_P + n_obs_N)
+      ) %>%
+      select(-matches('obs'))
+  
+  perf_plot <- perf %>%
+    ggplot(data = .) +
+    geom_line(aes(x = p, y = sensitivity, color = 'sensitivity'), size = 1) +
+    geom_line(aes(x = p, y = specificity, color = 'specificity'), size = 1) +
+    geom_line(aes(x = p, y = accuracy, color = 'accuracy'), size = 1) +
+    xlab('p (percent cutoff)') +
+    ylab('performance rate') +
+    scale_color_manual(
+      name = 'Performance Measures', 
+      values = c('sensitivity' = 'red', 'specificity' = 'dark green', 'accuracy' = 'blue'),
+      ) +
+    scale_x_continuous(breaks = seq(0, 1, by = 0.1), minor_breaks = seq(0, 1, by = 0.05))
+  
+  return(list(
+    mdl_probs = mdl_pred_prob,
+    performance_plot = perf_plot,
+    performance_tbl = perf,
+    confidence_matrix = conf_mat
+  ))
+}
+```
+
+### Linear Predictions
+
+```{r}
+# Logistic Classification
+mdl_performance(binom_mdl)
+predictors(binom_mdl)
+
+# Logistic Classification with PCA 
+mdl_performance(binom_PCA_mdl)
+```
+
+### Non-linear Predictions
+
+```{r}
+# Naive Bayes
+mdl_performance(nb_mdl)
+
+# Random Forest 
+mdl_performance(rf_mdl)
+```
+
+# Ensemble Predictions
+
+```{r}
+mdl_performance(ensemble_mdl)
 ```
