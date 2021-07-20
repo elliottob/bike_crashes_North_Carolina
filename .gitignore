@@ -5,5 +5,6 @@
 .Ruserdata
 # file names and extensions
 *.pdf
+*.rds
 # folders
 /project_info
