@@ -2,9 +2,12 @@
 title: "Data Exploration"
 author: "Elliott O'Brien"
 date: "`r Sys.time()`"
-output: 
-  pdf_document:
-    latex_engine: xelatex
+output:
+  html_document:
+    df_print: paged
+editor_options: 
+  markdown: 
+    wrap: 72
 ---
 
 ```{r data_prep_setup, include = FALSE}
@@ -37,9 +40,13 @@ bike_crashes <- read_csv(str_c(datacamp_dataset_repo, '/Pedestrian%20and%20Bike%
 
 ## Protest Data World-Wide
 
-  *   The Protest dataset lends itself to many different types of classification and statistical models
-  *   I'm interested to learn from this data, if we can predict if a protest will become violent; to determine what features presented in the dataset are good predictors of violence; comparing multiple models' predictive abilities
-  *   The large number of features (31), would need to be reduced by PCA or a regularization metric such as lasso or ridge for a linear model
+  *   The Protest dataset lends itself to many different types of classification
+  and statistical models
+  *   I'm interested to learn from this data, if we can predict if a protest 
+  will become violent; to determine what features presented in the dataset are 
+  good predictors of violence; comparing multiple models' predictive abilities
+  *   The large number of features (31), would need to be reduced by PCA or a 
+  regularization metric such as lasso or ridge for a linear model
 
 ```{r explore_protest, echo=TRUE, message=FALSE, warning=FALSE}
 # glimpse(protest)
@@ -61,11 +68,16 @@ bike_crashes <- read_csv(str_c(datacamp_dataset_repo, '/Pedestrian%20and%20Bike%
 
 ## Bicycle Crash Data in North Carolina
 
-  *   The bike_crashes dataset has the most features of the other potential datasets of interest
+  *   The bike_crashes dataset has the most features of the other potential 
+  datasets of interest
   *   some data/stats could be visualized on a geographical map
-  *   Models could be developed to classify crash severity, intersection and street with high risk/danger of bike crashes
-  *   Subgroup analyses could be done on types of crashes, county, city, region, etc.
-  *   The large number of features (61), would need to be reduced by PCA or a regularization metric such as lasso or ridge for a linear model
+  *   Models could be developed to classify crash severity, intersection and 
+  street with high risk/danger of bike crashes
+  *   Subgroup analyses could be done on types of crashes, county, city, region, 
+  etc.
+  *   The large number of variables (61) with multiple levels for some 
+  categorical variables.  Dataset would need to be reduced by PCA or a 
+  regularization metric such as lasso or ridge for a linear model
 
 ```{r explore_bike_crashes, echo=TRUE, message=FALSE, warning=FALSE}
 county_bike_crashes <- bike_crashes %>%
@@ -175,6 +187,8 @@ glimpse(bike_crashes)
 ```
 
 ### Data Preparation
+
+data cleaning is done in this section using tidyverse methods.
 
 ```{r clean_data, echo=TRUE, message=FALSE, warning=FALSE}
 bike_crashes_clean <- 
@@ -320,12 +334,20 @@ bike_crashes_clean <-
     BikeAge = if_else(is.na(BikeAge), median(BikeAge, na.rm = T), BikeAge)
   ) %>%
   ungroup() %>%
+  # if no age group given for biker, just use median value of full dataset
+  mutate(
+    BikeAge = if_else(is.na(BikeAge), median(BikeAge, na.rm = T), BikeAge)
+  ) %>%
   group_by(DrvrAgeGrp) %>%
   mutate(
     # median imputation for age (years) recorded as 70+
     DrvrAge = if_else(is.na(DrvrAge), median(DrvrAge, na.rm = T), DrvrAge)
   ) %>%
   ungroup() %>%
+  # if no age group given for driver, just use median value of full dataset
+  mutate(
+    DrvrAge = if_else(is.na(DrvrAge), median(DrvrAge, na.rm = T), DrvrAge)
+  ) %>%
   # convert all character vectors to factors
   mutate(across(where(is.character), ~ factor(.x))) %>%
   # find and remove any factor variables with less than 2 factors
@@ -346,7 +368,9 @@ bike_crashes_clean %>%
 
 ### Create Dummy Variables
 
-Use these dummy variables (numerical) to investigate correlated variables
+convert categorical variables to dummy variables.  Some name fixes will be 
+required to make column names more consistent.  If any binary features have NA's
+then replace with 0's to preserve largest complete dataset possible.
 
 ```{r create_dummies}
 bike_crash_dummies_mdl <- dummyVars(
@@ -387,6 +411,10 @@ bike_crash_dummies <- bike_crash_dummies %>%
 ```
 
 ### Correlated Variables
+
+In this section, correlated features will be removed based on complete cases.
+Any variables with zero variance after filtering for complete cases will be
+removed because they won't offer any information to a model.
 
 ```{r corr_vars}
 # if we look at correlation we'll have to use complete cases
