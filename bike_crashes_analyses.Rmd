@@ -1,18 +1,25 @@
 ---
 title: "Bike Crash Analyses"
 author: "Elliott O'Brien"
-date: "`R Sys.time()"
-output: 
-  pdf_document:
-    latex_engine: xelatex
+date: '`R Sys.time()`'
+output:
+  html_document:
+    df_print: paged
+editor_options: 
+  markdown: 
+    wrap: 72
 ---
 
 ```{r setup, include = FALSE}
 library('knitr')
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE
+)
 ```
 
-```{r load_libraries, include = FALSE}
+```{r load_libraries, message=FALSE, warning=FALSE, include=FALSE}
 library('tidyverse')
 theme_set(theme_bw())
 library('rnaturalearth')
@@ -32,41 +39,127 @@ my_default_control <- trainControl(
 )
 ```
 
+# Background
+
+As an avid bicyclist, the bike crashes dataset from North Carolina
+definitely grabbed my attention. As a bicyclist, I have run into my
+share of scary roads, intersections that are not bicycle friendly. I'm
+interested in knowing how a city decides to upgrade a street or
+intersection to become more bicycle friendly. In this report, I will be
+investigating machine learning models with the caret package in R and
+attempt to find the best model that can predict a bike injury being
+"serious" vs. "non-serious". I will assume that this model will be used
+to find the road, bicyclist, and driver features that most affect the
+seriousness of an injury.
+
+# Analytical Dataset
+
+The bike crashes dataset is sourced from the Department of
+Transportation in the state North Carolina from the years April 2007 -
+September 2019 ([North Carolina Bicycle and Pedestrian Crash Data Tool
+(pedbikeinfo.org)](https://www.pedbikeinfo.org/pbcat_nc/)). Raw data
+consists of 62 columns which are a mixture of numerical and character
+data types. The crash severity variable, CrashSevr, will be used as a
+response variable in a binary classification model, "Serious" vs.
+"Non-serious". Currently the variable is categorical with multiple
+levels of severity:
+
+-   suspected serious injury
+
+-   suspected minor injury
+
+-   possible injury
+
+-   killed
+
+-   and no injury
+
+However, these will be re-binned as follows:
+
+-   serious injury = {suspected serious injury OR killed}
+
+-   non-serious injury = {no injury OR possible injury OR suspected
+    minor injury}
+
+and assigned to a new variable BikeInjurySerious which will be our
+response variable in our models.
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+datacamp_dataset_repo <- 'https://raw.githubusercontent.com/datacamp/careerhub-data/master'
+bike_crashes <- read_csv(
+  str_c(
+    datacamp_dataset_repo, 
+    '/Pedestrian%20and%20Bike%20Crashes/pedestrian_bike_crash.csv'
+  )
+)
+```
+
+```{r echo=FALSE}
+bike_crashes %>% glimpse()
+```
+
+## Data Issues
+
+There are many issues with the data set not being tidy and clean. Some
+variables will need to be converted to a numerical datatype for the
+machine learning models to work properly. Categorical character columns
+will need to be converted to factors. Dummy variables will be created
+for every column that is not numerical. This will likely increase the
+number of features in the dataset to the scale of hundreds of features.
+Feature reduction will be carried out to reduce memory usage and
+computation time of fitting models. Feature reduction will be carried
+out by removing features that have little to no variability and will
+thus not contribute much information to the models being used.
+Additionally, features that have high correlation with other features
+will be removed to improve model performance.
+
+Some observations in the dataset that are missing data and these values
+have been imputed manually. For numerical missing data such as age
+missing values were imputed based on medians of age groups if age group
+variable is available, otherwise age was imputed using the median age of
+the full dataset based on the variable in question. For categorical
+variables, after being converted to dummy variables (i.e. 0 or 1 in
+value), missing values were imputed with a 0 to help in achieving a
+complete dataset as possible.
+
 # Data Preparation (separate file)
 
-```{r data_prep_render}
-# rmarkdown::render('data_exploration.Rmd')
+All data preparation is done in a separate file for brevity. See
+data_exploration.rmd to view the details.
+
+```{r data_prep_render, message=FALSE, warning=FALSE, include=FALSE}
+rmarkdown::render('data_exploration.Rmd')
 ```
 
 # Pre-Processing and Model Setup
 
-Using the caret package, a pre-processing step will be used to remove near-zero
-variance variables from the data set, to impute missing data, and to center and 
-scale variables.  The trainControl object will be used to control the type of 
-cross validation used to decrease overfitting.
+Using the caret package, a pre-processing step will be used to remove
+near-zero variance variables from the data set. All imputation has been
+done in the data preparation stage. The trainControl object will be used
+to control the type of cross validation used to decrease overfitting.
 
 Pre-Processing to be carried out:
-* remove near-zero variance
-* implement imputation (median, knn) for missing data
-* center and scale to normalize data
-* attempt principal components analysis (PCA) for feature reduction
+
+-   remove near-zero variance for feature reduction
+
+-   attempt principal components analysis (PCA) for feature reduction
+
+-   training dataset accounts for 80% of the full dataset, while testing
+    dataset will account for 20%.
 
 ```{r pre_process}
-
-# load cleaned-tidied data
-bike_crashes_clean <- readRDS('./derived_data/bike_crashes_clean.rds')
-bike_crash_dummies <- readRDS('./derived_data/bike_crash_dummies.rds')
 
 ########################
 # Check Missing Values #
 ########################
 
+# All missing data should have been imputed up to this point
+
 # percent of missing data in each column
-bike_crash_dummies %>%
-  map(~ round(sum(is.na(.x)) / nrow(bike_crash_dummies) * 100, 1)) %>%
-  as_tibble() %>%
-  select(where(~.x > 10)) %>%
-  kable(caption = 'Variables with more than 10% missing values')
+# bike_crash_dummies %>%
+#   map(~ round(sum(is.na(.x)) / nrow(bike_crash_dummies) * 100, 1)) %>%
+#   as_tibble() %>%
+#   kable(caption = 'Variables with more than 10% missing values')
 
 ################################################
 # Split Data into training and testing dataset #
@@ -76,19 +169,6 @@ set.seed(24)
 train_index <- createDataPartition(bike_crash_dummies$BikeInjurySerious, p = .8, list=FALSE)
 train_dat <- bike_crash_dummies[train_index,]
 test_dat <- bike_crash_dummies[-train_index,]
-
-# percent of missing data in each column
-train_dat %>%
-  map(~ round(sum(is.na(.x)) / nrow(train_dat) * 100, 1)) %>%
-  as_tibble() %>%
-  select(where(~.x > 10)) %>%
-  kable(caption = 'training dataset vars with more than 10% missing')
-
-test_dat %>%
-  map(~ round(sum(is.na(.x)) / nrow(test_dat) * 100, 1)) %>%
-  as_tibble() %>%
-  select(where(~.x > 10)) %>%
-  kable(caption = 'test dataset vars with more than 10% missing')
 
 ##################
 # Pre-Processing #
@@ -101,14 +181,12 @@ preproc_mdl <- preProcess(
     as.data.frame,
   # centering and scaling done by knnImpute
   method = c(
-    'nzv',
-    'center',
-    'scale',
-    'medianImpute' # median impute for age
-  )
+    'nzv'
+  ),
+  uniqueCut = 5
 )
 
-preproc_mdl
+# preproc_mdl
 # preproc_mdl$method
 
 # run the preProcess predictions to create new dataset
@@ -138,16 +216,12 @@ test_dat <-
       )
     )
 
-########################
-# Check Missing Values #
-########################
+#######################
+# train and test data #
+#######################
 
-# percent of missing data in each column with > 10% missing
-bike_crashes_preProcessed %>%
-  map(~ round(sum(is.na(.x)) / nrow(bike_crashes_preProcessed) * 100, 1)) %>%
-  as_tibble() %>%
-  select(where(~.x > 10)) %>%
-  kable(caption = 'Percent Missing Values (w/ more than 10% missing)')
+# bike_crashes_preProcessed %>%
+#  glimpse()
 
 # Serious Injuries are rare events, consider using down/up sampling
 bike_crashes_preProcessed %>% 
@@ -155,17 +229,75 @@ bike_crashes_preProcessed %>%
   mutate(pct = n / sum(n) * 100) %>%
   kable(caption = 'Preprocessed training data class summary')
 
+# Test data class summary
 test_dat %>% 
+  mutate(
+    BikeInjurySerious = factor(
+      if_else(BikeInjurySerious == 1, 'Serious', 'Non.Serious'),
+      levels = c('Serious', 'Non.Serious')
+    )
+  ) %>%
   count(BikeInjurySerious) %>% 
   mutate(pct = n / sum(n) * 100) %>%
   kable(caption = 'Test data data class summary')
 ```
 
-## Modeling
+# Modeling
 
-### Linear Classifiers 
+Multiple models will be evaluated for performance based on ROC metric
+and by computation time. The best models will be used in an ensemble
+model. Models will be chosen for the ensemble based on computation time,
+ROC, complimentary results, i.e., one model may have higher sensitivity
+while another may have higher specificity, and an ensemble could balance
+these models.
 
-```{r linear_classifiers}
+The model predictors are selected based on caret's underlying training
+methodology. All final model's hyper-parameters and predictors will be
+chosen based on the optimum area under the ROC (i.e. AUC). AUC is a
+performance metric that will balance sensitivity (true positive rate)
+and specificity (true negative rate). AUC values range from 0 to 1 and a
+value of 1 considered a perfect classification model. hyper-parameter
+grid search is set to default which chooses hyper-parameters randomly.
+
+Repeated k-fold cross-validation will carried out on all models below.
+In some cases, the computation method is quite complex and is very slow
+to compute (e.g. random forests). In these cases, repeated
+cross-validation will be reduced to non-repeated cross-validation and/or
+the k in k-fold will be reduced.
+
+Since the prevalence of serious injury is so low (around 5%),
+up-sampling has been used to increase representation when k-fold cross
+validation occurs.
+
+All models will be run on the training dataset.
+
+## Linear Classifiers
+
+Linear classifier models parameterize the probability of a response,
+serious injury in our case, based on a linear combination data features.
+These models are nice since we can intuitively see the importance of
+each feature in the final model with respect to how they influence the
+probability of a serious injury. In this section, a general linear model
+w/ a binary link function (aka logistic classification model) will be
+used which takes numerical features as inputs and will be used to
+predict probability of having a serious injury. Principal components
+analysis (PCA) will be attempted to see if the feature space can be
+further reduced and model improved.
+
+glmnet package is used for logistic regression with elastic-net penalty
+built-in. PCA is carried out on second logistic model to see if there is
+any improvement. Multiple hyper-parameters, alpha (mixing parameter: 0 =
+ridge, 1 = lasso) and lambda (penalty size), will be explored by caret.
+
+### Logistic (elastic-net) Model
+
+```{r logistic_model}
+set.seed(42)
+# seeds to be used reproducable resampling
+seeds <- vector(mode = "list", length = 31)
+for(i in 1:30) seeds[[i]] <- sample.int(1000, 33)
+seeds[[31]] <- sample.int(1000, 1)
+
 # caret control
 binomial_control <- trainControl(
   summaryFunction = twoClassSummary,
@@ -173,34 +305,43 @@ binomial_control <- trainControl(
   savePredictions = 'final',
   sampling = 'up',
   method = 'repeatedcv',
-  repeats = 3
+  repeats = 3,
+  index = createFolds(bike_crashes_preProcessed$BikeInjurySerious, 10),
+  seeds = seeds
 )
 
-set.seed(42)
-
-
 ######################################
-# Elasticnet Logistic Classification #
+# ElasticNet Logistic Classification #
 ######################################
 # timing process
 a <- Sys.time()
 # create clusters
-cl <- makeCluster(7)
+cl <- makeCluster(detectCores() / 2)
 registerDoParallel(cl)
 
-binom_mdl <- train(
+log_mdl <- train(
   BikeInjurySerious ~ .,
   data = bike_crashes_preProcessed,
   method = 'glmnet',
   family = 'binomial',
   na.action = na.omit,
   trControl = binomial_control,
-  tuneLenth = 20
+  tuneGrid = expand.grid(
+    .alpha = seq(0, 1, .1),
+    .lambda = c(0.1, 0.01, 0.001)
+  ),
+  seeds = seeds,
 )
 stopCluster(cl)
 b <- Sys.time()
-binom_time <- b - a
-print(binom_time)
+log_time <- b - a
+print(log_time)
+```
+
+### Logistic Model (elastic-net) with PCA
+
+```{r logistic_PCA_model}
+set.seed(42)
 
 #################################################################
 # Elasticnet Logistic Classification using Principal Components #
@@ -208,9 +349,9 @@ print(binom_time)
 # timing process
 a <- Sys.time()
 # create clusters
-cl <- makeCluster(7)
+cl <- makeCluster(detectCores() / 2)
 registerDoParallel(cl)
-binom_PCA_mdl <- train(
+log_PCA_mdl <- train(
   BikeInjurySerious ~ .,
   data = bike_crashes_preProcessed,
   method = 'glmnet',
@@ -218,17 +359,32 @@ binom_PCA_mdl <- train(
   preProcess = c('pca'),
   na.action = na.omit,
   trControl = binomial_control,
-  tuneLength = 20
+  tuneGrid = expand.grid(
+    .alpha = seq(0, 1, .1),
+    .lambda = c(0.1, 0.01, 0.001)
+  ),
+  seeds = seeds
 )
 stopCluster(cl)
 b <- Sys.time()
-binom_PCA_time <- b - a
-print(binom_PCA_time)
+log_PCA_time <- b - a
+print(log_PCA_time)
 ```
 
-### Non-linear Classifcation Models (Random Forests)
+## Non-linear Classification Models
 
-```{r nonlinear_classifiers}
+In some cases, linear classifiers do not perform well when the response
+classes (i.e. serious, non-serious) do not have a linear relationship
+with the features. Put another way, linear classifiers can not produce a
+straight line in the feature space that separates the response classes.
+Below, naive Bayes classifier, neural network and random forest models
+are used. It would not be a good use of space to go into details of each
+of these models. R has plenty of documentation on each model if one is
+curious.
+
+### Naive Bayes Model
+
+```{r naive_bayes}
 set.seed(42)
 
 ###############
@@ -237,19 +393,30 @@ set.seed(42)
 # timing process
 a <- Sys.time()
 # create clusters
-cl <- makeCluster(7)
+cl <- makeCluster(detectCores() / 2)
 registerDoParallel(cl)
 nb_mdl <- train(
   BikeInjurySerious ~ .,
   data = bike_crashes_preProcessed,
   method = 'naive_bayes',
   na.action = na.omit,
-  trControl = binomial_control
+  trControl = binomial_control,
+  tuneGrid = expand.grid(
+    .laplace = 0:1,
+    .adjust = 0:1,
+    .usekernel = c(T, F)
+  )
 )
 stopCluster(cl)
 b <- Sys.time()
 nb_time <- b - a
 print(nb_time)
+```
+
+### K-nearest Neighbor Model
+
+```{r knn}
+set.seed(42)
 
 ##################
 # Neural Network #
@@ -257,19 +424,33 @@ print(nb_time)
 # timing process
 a <- Sys.time()
 # create clusters
-cl <- makeCluster(7)
+cl <- makeCluster(detectCores() / 2)
 registerDoParallel(cl)
-nn_mdl <- train(
+knn_mdl <- train(
   BikeInjurySerious ~ .,
   data = bike_crashes_preProcessed,
-  method = 'nnet',
+  method = 'knn',
   na.action = na.omit,
-  trControl = binomial_control
+  trControl = binomial_control,
+  tuneGrid = expand.grid(
+    k = seq(10, 100, 5)
+  )
 )
 stopCluster(cl)
 b <- Sys.time()
-nn_time <- b - a
-print(nn_time)
+knn_time <- b - a
+print(knn_time)
+```
+
+### Random Forests Model
+
+```{r random_forests}
+set.seed(42)
+rf_tune_grid <- expand.grid(
+  .mtry = 2:21,
+  .splitrule = c('gini'),
+  .min.node.size = 1
+)
 
 #################
 # Random Forest #
@@ -277,14 +458,16 @@ print(nn_time)
 # timing process
 a <- Sys.time()
 # create clusters
-cl <- makeCluster(7)
+cl <- makeCluster(detectCores() / 2)
 registerDoParallel(cl)
 rf_mdl <- train(
   BikeInjurySerious ~ .,
   data = bike_crashes_preProcessed,
   method = 'ranger',
+  importance = 'permutation',
   na.action = na.omit,
-  trControl = binomial_control
+  trControl = binomial_control,
+  tuneGrid = rf_tune_grid
 )
 stopCluster(cl)
 b <- Sys.time()
@@ -292,75 +475,51 @@ rf_time <- b - a
 print(rf_time)
 ```
 
-### Emsemble Classifier
+# Prediction Performance
 
-Logistic Regression Naive Bayes will be used in an ensemble learning model.
-Note that random forests took the longest to run with no improvement in accuracy
-and is not used in the ensemble reason for these reasons. Neural network also 
-does not perform well since accuracy is low and speed is slow.
+In this section, each model will be evaluated on its' performance in
+accuracy, sensitivity and specificity based on the optimum probability
+cutoff used to classify each observation as a serious or non-serious
+injury. You will see plots below that show that a model with high
+accuracy is not necessarily the best at classifying observations. In
+fact, a model that predicts non-serious 100% of the time has a model
+accuracy of 95% since the prevalence of serious injury is 5% in the
+dataset.
 
-```{r ensemble_classifier}
-set.seed(42)
+Optimum probability cut-off values will be explored using model
+predictions on the training dataset. The best probability cut-off will
+be determined based on the assumption that the cost of a false negative,
+predict non-serious injury when in-fact was a serious injury, is higher
+than a false positive, predict serious injury when in-fact was
+non-serious injury. The high cost for a false negative is higher because
+lives could potentially be lost or a life-changing injury, while the
+false positive only results in potentially spending more money on road
+safety for bicyclists which pays off in the long run anyways. Therefore,
+probability cut-offs will be chosen to optimize sensitivity (true
+positive rate) along with accuracy, with specificity (false negative
+rate) being the last priority. With this in mind, let's assume that we
+want to have at close to 75% for sensitivity, and above 60% for
+accuracy. Specificity can be relaxed as low as 50%. The models that
+don't meet these criteria will not be included in an ensemble model.
 
-# timing process
-a <- Sys.time()
-# create clusters
-cl <- makeCluster(7)
-registerDoParallel(cl)
-model_list <- caretList(
-  BikeInjurySerious ~ .,
-  data = bike_crashes_preProcessed %>%
-    filter(complete.cases(.)),
-  tuneList = list(
-    binom_mdl = caretModelSpec(
-      method = 'glmnet',
-      family = 'binomial',
-      tuneLength = 20
-    ),
-    nb_mdl = caretModelSpec(method = 'naive_bayes')
-  ),
-  trControl = trainControl(
-    summaryFunction = twoClassSummary,
-    classProbs = TRUE,
-    savePredictions = 'final',
-    sampling = 'up',
-    method = 'repeatedcv',
-    repeats = 3
-  )
-)
-stopCluster(cl)
+All final predictions will be based on test dataset.
 
-cl <- makeCluster(7)
-registerDoParallel(cl)
-ensemble_mdl <- caretEnsemble(
-  model_list, 
-  metric = 'ROC',
-  trControl = trainControl(
-    summaryFunction = twoClassSummary,
-    classProbs = TRUE
-  )
-)
-stopCluster(cl)
-b <- Sys.time()
-ensemble_time <- b - a
-print(ensemble_time)
-
-ensemble_mdl
-ggplot(resamples(model_list))
-modelCor(resamples(model_list))
-```
-
-## Predictions
-
-```{r pred_perf_fn}
+```{r pred_perf_fn, message=FALSE, warning=FALSE, include=FALSE}
 # performance function
-mdl_performance <- function(mdl, conf_matrix = FALSE, ensemble = FALSE, mdl_lst = NULL) {
-  
+mdl_train_performance <- function(mdl, conf_matrix = FALSE, ensemble = FALSE, mdl_lst = NULL) {
+  set.seed(42)
+  # train data
   mdl_train_dat <- bike_crashes_preProcessed
+  
+  # model variable importance
+  variable_imp <- varImp(mdl)
+  if(ensemble) {
+    variable_imp <- variable_imp %>% 
+      arrange(desc(overall))
+  }
   
   # construct test dataset based on model type
   mdl_predictors <- NULL
-  mdl_test_dat <- NULL
   if(ensemble) {
     mdl_predictors <- map(mdl_lst, predictors) %>% 
       flatten() %>% 
@@ -369,12 +528,13 @@ mdl_performance <- function(mdl, conf_matrix = FALSE, ensemble = FALSE, mdl_lst 
   } else {
     mdl_predictors <- attr(formula(mdl), 'term.labels')
   }
-  mdl_test_dat <- test_dat[complete.cases(test_dat[, names(test_dat) %in% mdl_predictors]),]
+  mdl_train_dat <- mdl_train_dat[
+    complete.cases(mdl_train_dat[, names(mdl_train_dat) %in% mdl_predictors]),
+  ]
   
-  # predictions based on training and test dataset
+  # predictions based on training dataset
   mdl_train_pred <- predict(mdl, newdata = mdl_train_dat)
-  mdl_test_pred <- predict(mdl, newdata = test_dat)
-
+  
   # performance based on train data
   train_conf_mat <- NULL
   if(conf_matrix) {
@@ -386,14 +546,14 @@ mdl_performance <- function(mdl, conf_matrix = FALSE, ensemble = FALSE, mdl_lst 
   
   mdl_train_pred_prob <- predict(mdl, newdata = mdl_train_dat, type = 'prob')
   if(ensemble) {
-    mdl_pred_prob <- tibble(
+    mdl_train_pred_prob <- tibble(
       Serious = mdl_train_pred_prob
     ) %>%
     mutate(
       Non.Serious = 1 - Serious
     ) 
   }
-
+  
   perf <- tibble(
       p = seq(.01, 0.99, by = .01),
       mdl_prob = list(mdl_train_pred_prob),
@@ -408,17 +568,17 @@ mdl_performance <- function(mdl, conf_matrix = FALSE, ensemble = FALSE, mdl_lst 
         }
       )
     ) %>% 
-      unnest(c(obs, pred)) %>%
-      group_by(p) %>%
-      summarize(
-        n_TP = sum(obs == 'Serious' & pred == obs),
-        n_obs_P = sum(obs == 'Serious'),
-        sensitivity = n_TP / n_obs_P,
-        n_TN = sum(obs == 'Non.Serious' & pred == obs),
-        n_obs_N = sum(obs == 'Non.Serious'),
-        specificity = n_TN / n_obs_N,
-        accuracy = (n_TP + n_TN) / (n_obs_P + n_obs_N)
-      )
+    unnest(c(obs, pred)) %>%
+    group_by(p) %>%
+    summarize(
+      n_TP = sum(obs == 'Serious' & pred == obs),
+      n_obs_P = sum(obs == 'Serious'),
+      n_TN = sum(obs == 'Non.Serious' & pred == obs),
+      n_obs_N = sum(obs == 'Non.Serious'),
+      accuracy = (n_TP + n_TN) / (n_obs_P + n_obs_N),
+      sensitivity = n_TP / n_obs_P,
+      specificity = n_TN / n_obs_N
+    )
   
   perf_plot <- perf %>%
     ggplot(data = .) +
@@ -434,64 +594,369 @@ mdl_performance <- function(mdl, conf_matrix = FALSE, ensemble = FALSE, mdl_lst 
     scale_x_continuous(breaks = seq(0, 1, by = 0.1), minor_breaks = seq(0, 1, by = 0.05)) +
     scale_y_continuous(breaks = seq(0, 1, by = 0.1), minor_breaks = seq(0, 1, by = 0.05))
   
-  # performance based on test data
-  test_conf_mat <- NULL
-  if(conf_matrix) {
-    test_conf_mat <- confusionMatrix(
-      factor(mdl_test_pred, levels = c('Serious', 'Non.Serious')),
-      factor(mdl_test_dat$BikeInjurySerious, levels = c('Serious', 'Non.Serious'))
-    )
-  }
-  
   return(
     list(
-      train_performance_plot = perf_plot,
-      train_performance_tbl = perf,
       train_conf_matrix = train_conf_mat,
-      test_conf_matrix = test_conf_mat
+      variable_importance = variable_imp,
+      train_performance_plot = perf_plot
     )
   )
 }
+
+mdl_test_performance <- function(mdl, prob_cutoff = NULL, ensemble = FALSE, mdl_lst = NULL) {
+  set.seed(42)
+  # construct test dataset based on model type
+  mdl_predictors <- NULL
+  mdl_test_dat <- NULL
+  if(ensemble) {
+    mdl_predictors <- map(mdl_lst, predictors) %>% 
+      flatten() %>% 
+      unlist() %>% 
+      unique()
+  } else {
+    mdl_predictors <- attr(formula(mdl), 'term.labels')
+  }
+  mdl_test_dat <- test_dat[
+    complete.cases(test_dat[, names(test_dat) %in% mdl_predictors]),
+  ]
+  
+  # predictions based on training probability cutoff and test dataset
+  mdl_test_pred_prob <- predict(mdl, newdata = test_dat, type = 'prob')
+  if(!ensemble) mdl_test_pred_prob <- mdl_test_pred_prob$Serious
+
+  perf <- tibble(
+      obs = mdl_test_dat$BikeInjurySerious,
+      prob = mdl_test_pred_prob
+    ) %>%
+    mutate(
+      pred = if_else(prob > prob_cutoff, 'Serious', 'Non.Serious')
+    ) %>%
+    unnest(c(obs, pred)) %>%
+    summarize(
+      n_TP = sum(obs == 'Serious' & pred == obs),
+      n_obs_P = sum(obs == 'Serious'),
+      n_TN = sum(obs == 'Non.Serious' & pred == obs),
+      n_obs_N = sum(obs == 'Non.Serious'),
+      accuracy = (n_TP + n_TN) / (n_obs_P + n_obs_N),
+      sensitivity = n_TP / n_obs_P,
+      specificity = n_TN / n_obs_N
+    )
+  
+  return(perf)
+}
 ```
 
-### Linear Predictions
+## Linear Predictions
+
+Both standard logistic model and PCA logistic model have similar
+outcomes. Logistic model without PCA was faster at achieving a similar
+result. Therefore PCA was not useful in this case and will not be used
+elsewhere.
+
+### Logistic (elastic net) Predictions
 
 ```{r linear_preds}
 # Logistic Classification
-mdl_performance(binom_mdl, conf_matrix = TRUE)
-
-# Logistic Classification with PCA 
-mdl_performance(binom_PCA_mdl, conf_matrix = TRUE)
+mdl_train_performance(log_mdl, conf_matrix = TRUE)
+log_mdl_perf <- mdl_test_performance(log_mdl, prob_cutoff = .4517) %>% 
+  mutate(model = 'logistic')
+log_mdl_perf %>% 
+  kable(caption = 'Test Data Performance: GLM')
 ```
 
-### Non-linear Predictions
+### Logistic (elastic net) with PCA Predictions
 
-```{r nonlinear_preds}
+PCA does not seem to improve the logistic model enough to be useful.
+
+```{r}
+# Logistic Classification with PCA
+mdl_train_performance(log_PCA_mdl, conf_matrix = TRUE)
+log_PCA_perf <- mdl_test_performance(log_PCA_mdl, prob_cutoff = .452) %>%
+  mutate(model = 'logistic w/ PCA')
+log_PCA_perf %>%
+  kable(caption = 'Test Data Performance: GLM w/ PCA')
+```
+
+## Non-linear Predictions Predictions
+
+Naive bayes classifier is the fastest and has a very similar result the
+GLM models above. Both neural network and random forest take
+considerably longer to compute and don't perform much better than naive
+bayes. Therefore, only the naive bayes model made it into ensemble
+model.
+
+Notice that for random forest model, since we dropped the repeated part
+of the cross-validation and dropped the k in k-fold to 5 from 10, the
+model is over-fitting a bit more than the other models. The high
+accuracy values in the random forest performance plot and the low
+accuracy with the test dataset confirm this. Since the random forest
+algorithm is slow compared to these other non-linear models it was not
+be used in ensemble model.
+
+### Naive Bayes Predictions
+
+```{r naive_bayes_pred}
 # Naive Bayes
-mdl_performance(nb_mdl, conf_matrix = TRUE)
-
-# Neural Network
-mdl_performance(nn_mdl, conf_matrix = TRUE)
-
-# Random Forest 
-mdl_performance(rf_mdl, conf_matrix = TRUE)
+mdl_train_performance(nb_mdl, conf_matrix = TRUE)
+nb_mdl_perf <- mdl_test_performance(nb_mdl, prob_cutoff = .265) %>% 
+  mutate(model = 'naive bayes')
+nb_mdl_perf %>% 
+  kable(caption = 'Test Data Performance: Naive Bayes')
 ```
 
-### Ensemble Predictions
+### K-nearest Neighbors Predictions
+
+Predictions for K-nearest neighbor take a lot longer to compute than
+other models.
+
+```{r knn_pred}
+# K-nearest Neighbors
+mdl_train_performance(knn_mdl, conf_matrix = TRUE)
+knn_mdl_perf <- mdl_test_performance(knn_mdl, prob_cutoff = .395) %>%
+  mutate(model = 'K-nearest neighbors')
+knn_mdl_perf %>%
+  kable(caption = 'Test Data Performance: K-nearest Neighbor')
+```
+
+### Random Forest Predictions
+
+```{r rf_pred}
+# Random Forest
+mdl_train_performance(rf_mdl, conf_matrix = TRUE)
+rf_mdl_perf <- mdl_test_performance(rf_mdl, prob_cutoff = .269) %>% 
+  mutate(model = 'random forest')
+rf_mdl_perf %>%
+  kable(caption = 'Test Data Performance: Random Forest')
+```
+
+# Model Performance on Test Data
+
+The goal of this section to select the models that will go on to
+ensemble model.
+
+Logistic model, naive Bayes and random forests all perform similarly.
+However, the logistic model performs the best as far as balancing
+sensitivity, accuracy and specificity. As stated before, PCA did not
+make the logistic model perform better than without it and will not be
+included in the ensemble. The naive Bayes model computes the fastest
+with the least accuracy due to having a low specificity. The random
+forest is the slowest to compute, and has second highest accuracy
+(excluding PCA). K-nearest neighbors was the worst performer in accuracy
+due to the lowest specificity and therefore, will not move on to the
+ensemble model.
+
+```{r model_summaries}
+list(
+  log_mdl_perf,
+  log_PCA_perf,
+  nb_mdl_perf,
+  knn_mdl_perf,
+  rf_mdl_perf
+) %>% 
+  reduce(
+    bind_rows
+  ) %>% 
+  select(model, everything()) %>%
+  left_join(
+    tibble(
+      model = c(
+        'logistic', 
+        'logistic w/ PCA', 
+        'naive bayes', 
+        'K-nearest neighbors', 
+        'random forest'
+      ),
+      run_time = c(
+        log_time, 
+        log_PCA_time, 
+        nb_time,
+        knn_time,
+        rf_time
+      )
+    )
+  ) %>%
+  kable(caption = 'Model Performance Comparison with Test Data')
+```
+
+# Ensemble Model
+
+## Ensemble Classifier
+
+Logistic, naive Bayes random forests will be used in an ensemble
+learning model. Note that random forests took the longest to run before
+and is the bottleneck of the ensemble model. However, since we've
+already found the tuning of the models, grid search part of the fitting
+is not needed and will speed up the computation time.
+
+```{r ensemble_classifier}
+set.seed(42)
+
+ensemble_control <- trainControl(
+  summaryFunction = twoClassSummary,
+  classProbs = TRUE,
+  savePredictions = 'final',
+  sampling = 'up',
+  method = 'repeatedcv',
+  number = 10,
+  repeats = 5,
+  index = createFolds(bike_crashes_preProcessed$BikeInjurySerious, 10),
+  # only need the first element of each seeds list 
+  # since all hyper-params chosen
+  seeds = seeds %>% map(1)
+)
+
+# timing process
+a <- Sys.time()
+# create clusters
+cl <- makeCluster(detectCores() / 2)
+registerDoParallel(cl)
+model_list <- caretList(
+  BikeInjurySerious ~ .,
+  data = bike_crashes_preProcessed,
+  tuneList = list(
+    log_mdl = caretModelSpec(
+      method = 'glmnet',
+      family = 'binomial',
+      tuneGrid = expand.grid(
+        .alpha = 0.3,
+        .lambda = 0.1
+      )
+    ),
+    nb_mdl = caretModelSpec(
+      method = 'naive_bayes',
+      tuneGrid = expand.grid(
+        .laplace = 0, 
+        .adjust = 1,
+        .usekernel = TRUE
+      )
+    ),
+    rf_mdl = caretModelSpec(
+      method = 'ranger', 
+      importance = 'permutation',
+      tuneGrid = expand.grid(
+        .mtry = 2,
+        .splitrule = 'gini',
+        .min.node.size = 1
+      )
+    )
+  ),
+  trControl = ensemble_control
+)
+stopCluster(cl)
+
+cl <- makeCluster(detectCores() / 2)
+registerDoParallel(cl)
+ensemble_mdl <- caretEnsemble(
+  model_list, 
+  metric = 'ROC',
+  trControl = trainControl(
+    summaryFunction = twoClassSummary,
+    classProbs = TRUE
+  )
+)
+stopCluster(cl)
+b <- Sys.time()
+ensemble_time <- b - a
+print(ensemble_time)
+
+# model_list
+ensemble_mdl
+# ggplot(resamples(model_list))
+# modelCor(resamples(model_list))
+```
+
+## Ensemble Predictions
 
 ```{r ensemble_preds}
-mdl_performance(ensemble_mdl, ensemble = TRUE, mdl_lst = model_list)
+ensemble_train_perf <- mdl_train_performance(
+  ensemble_mdl, 
+  conf_matrix = TRUE, 
+  ensemble = TRUE, 
+  mdl_lst = model_list
+)
+# customize output
+ensemble_train_perf$train_conf_matrix
+ensemble_train_perf$variable_importance %>%
+  slice(1:20) %>%
+  kable(
+    caption = "Top 20 most import features by each model and overall", 
+    digits = 4
+  )
+ensemble_train_perf$train_performance_plot
+
+ensemble_mdl_perf <- mdl_test_performance(
+  ensemble_mdl, 
+  prob_cutoff = .068,
+  ensemble = TRUE,  
+  mdl_lst = model_list
+) %>%
+  mutate(model = 'ensemble (Log & NB & RF)')
+ensemble_mdl_perf %>%
+  kable(caption = 'Test Data Performance: Ensemble')
 ```
 
-### Model Run Times
+# Conclusions
 
-```{r model_runtimes}
-tibble(
- binom_logistic = binom_time,
- binom_PCA = binom_PCA_time,
- naive_bayes = nb_time,
- random_forest = rf_time,
- neural_network = nn_time,
- ensemble = ensemble_time
-) %>% kable(caption = 'Model Run-time')
+```{r ensemble_vs_other_mdls}
+list(
+  log_mdl_perf,
+  log_PCA_perf,
+  nb_mdl_perf,
+  knn_mdl_perf,
+  rf_mdl_perf,
+  ensemble_mdl_perf
+) %>% 
+  reduce(
+    bind_rows
+  ) %>% 
+  select(model, everything()) %>%
+  left_join(
+    tibble(
+      model = c(
+        'logistic', 
+        'logistic w/ PCA', 
+        'naive bayes', 
+        'K-nearest neighbors', 
+        'random forest',
+        'ensemble (Log & NB & RF)'
+      ),
+      run_time = c(
+        log_time, 
+        log_PCA_time, 
+        nb_time,
+        knn_time,
+        rf_time,
+        ensemble_time
+      )
+    )
+  ) %>%
+  kable(caption = 'Model Performances Comparison (w/ Ensemble)')
 ```
+
+clearly all models are quite similar in results except for the k-nearest
+neighbors model which suffered from losing specificity when attempting
+to match sensitivity of the linear models.
+
+Therefore the logistic model is selected as the best model. For this
+model, the top 20 most important variables are as follows:
+
+```{r}
+var_imp <- varImp(rf_mdl)
+var_imp$importance %>%
+  rename(Importance = Overall) %>%
+  arrange(desc(Importance)) %>%
+  kable(
+    caption = 'Top 20 most important features for Random Forests model', 
+    digits = 4
+  )
+```
+
+As it can be seen, rural crashes are the most severe as they usually
+have higher speed limits. The main take away from these results is that
+bicyclists are not being protected on rural roads where touring
+bicyclists spend most of their time. A recommendation that I have is to
+cities that book-end the roads that are most heavily traveled by
+bicyclists, invest in extending the shoulder of these roads and to
+include bike signs. This could later be added to the bike crash data as
+"bicycle improved rural road" and the treatment could be tested again
+roads that were not treated (control).
