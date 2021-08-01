@@ -1,7 +1,7 @@
 ---
 title: "Bike Crash Analyses"
 author: "Elliott O'Brien"
-date: '`R Sys.time()`'
+date: '`r Sys.time()`'
 output:
   html_document:
     df_print: paged
@@ -295,6 +295,7 @@ ridge, 1 = lasso) and lambda (penalty size), will be explored by caret.
 set.seed(42)
 # seeds to be used reproducable resampling
 seeds <- vector(mode = "list", length = 31)
+# longest set of hyper-params is 33 (logistic mdl)
 for(i in 1:30) seeds[[i]] <- sample.int(1000, 33)
 seeds[[31]] <- sample.int(1000, 1)
 
@@ -305,8 +306,13 @@ binomial_control <- trainControl(
   savePredictions = 'final',
   sampling = 'up',
   method = 'repeatedcv',
+  number = 10,
   repeats = 3,
-  index = createFolds(bike_crashes_preProcessed$BikeInjurySerious, 10),
+  index = createMultiFolds(
+    bike_crashes_preProcessed$BikeInjurySerious, 
+    k = 10,
+    times = 3
+  ),
   seeds = seeds
 )
 
@@ -446,8 +452,28 @@ print(knn_time)
 
 ```{r random_forests}
 set.seed(42)
+
+# random forests is the most computation intensive with repeatedcv
+# will reduce to non-repeated cv since random forests has methods
+# that are similar to cross-validation already (many trees in a forest)
+rf_control <- trainControl(
+  summaryFunction = twoClassSummary,
+  classProbs = TRUE,
+  savePredictions = 'final',
+  sampling = 'up',
+  method = 'cv',
+  number = 10,
+  index = createFolds(
+    bike_crashes_preProcessed$BikeInjurySerious, 
+    k = 10,
+    returnTrain = TRUE
+  ),
+  # collect the first 5 seed lists and the final model seed 
+  seeds = seeds[c(1:10, 31)] 
+)
+
 rf_tune_grid <- expand.grid(
-  .mtry = 2:21,
+  .mtry = 2:11,
   .splitrule = c('gini'),
   .min.node.size = 1
 )
@@ -466,7 +492,7 @@ rf_mdl <- train(
   method = 'ranger',
   importance = 'permutation',
   na.action = na.omit,
-  trControl = binomial_control,
+  trControl = binom_control,
   tuneGrid = rf_tune_grid
 )
 stopCluster(cl)
@@ -513,7 +539,8 @@ mdl_train_performance <- function(mdl, conf_matrix = FALSE, ensemble = FALSE, md
   
   # model variable importance
   variable_imp <- varImp(mdl)
-  if(ensemble) {
+  variable_imp <- variable_imp$importance
+  if(ensemble | mdl$modelInfo$label == 'Random Forests') {
     variable_imp <- variable_imp %>% 
       arrange(desc(overall))
   }
@@ -671,7 +698,7 @@ PCA does not seem to improve the logistic model enough to be useful.
 ```{r}
 # Logistic Classification with PCA
 mdl_train_performance(log_PCA_mdl, conf_matrix = TRUE)
-log_PCA_perf <- mdl_test_performance(log_PCA_mdl, prob_cutoff = .452) %>%
+log_PCA_perf <- mdl_test_performance(log_PCA_mdl, prob_cutoff = .465) %>%
   mutate(model = 'logistic w/ PCA')
 log_PCA_perf %>%
   kable(caption = 'Test Data Performance: GLM w/ PCA')
@@ -712,7 +739,7 @@ other models.
 ```{r knn_pred}
 # K-nearest Neighbors
 mdl_train_performance(knn_mdl, conf_matrix = TRUE)
-knn_mdl_perf <- mdl_test_performance(knn_mdl, prob_cutoff = .395) %>%
+knn_mdl_perf <- mdl_test_performance(knn_mdl, prob_cutoff = .4) %>%
   mutate(model = 'K-nearest neighbors')
 knn_mdl_perf %>%
   kable(caption = 'Test Data Performance: K-nearest Neighbor')
@@ -723,7 +750,7 @@ knn_mdl_perf %>%
 ```{r rf_pred}
 # Random Forest
 mdl_train_performance(rf_mdl, conf_matrix = TRUE)
-rf_mdl_perf <- mdl_test_performance(rf_mdl, prob_cutoff = .269) %>% 
+rf_mdl_perf <- mdl_test_performance(rf_mdl, prob_cutoff = .075) %>% 
   mutate(model = 'random forest')
 rf_mdl_perf %>%
   kable(caption = 'Test Data Performance: Random Forest')
@@ -735,15 +762,25 @@ The goal of this section to select the models that will go on to
 ensemble model.
 
 Logistic model, naive Bayes and random forests all perform similarly.
-However, the logistic model performs the best as far as balancing
-sensitivity, accuracy and specificity. As stated before, PCA did not
-make the logistic model perform better than without it and will not be
-included in the ensemble. The naive Bayes model computes the fastest
-with the least accuracy due to having a low specificity. The random
-forest is the slowest to compute, and has second highest accuracy
-(excluding PCA). K-nearest neighbors was the worst performer in accuracy
-due to the lowest specificity and therefore, will not move on to the
-ensemble model.
+However, the random forests model performs the best as far as optimizing
+sensitivity while balancing accuracy and specificity. Notice that the
+random forests model performs extremely well on the training set which
+is over optimistic as far as it's performance on new data. Notice that
+the random forests model has the biggest drop in performance for the
+test dataset.
+
+The logistic model has the second best test dataset peformance as it is
+not as good at balancing the specificity and thus accuracy is lost as
+well. As stated earlier, PCA did not make the logistic model perform
+better than without it and will not be included in the ensemble.
+
+The naive Bayes model computes the fastest with the lower accuracy due
+to having a low specificity. Considering how fast the computation is and
+not having a huge drop in accuracy, this is still a reasonable model.
+
+K-nearest neighbors was the worst performer in accuracy due to the
+lowest specificity and therefore, will not move on to the ensemble
+model.
 
 ```{r model_summaries}
 list(
@@ -790,6 +827,13 @@ is not needed and will speed up the computation time.
 
 ```{r ensemble_classifier}
 set.seed(42)
+# seeds to be used reproducable resampling
+# since we have the hyper-parameters locked in,
+# we can add additional cross-validation iterations
+# in an attempt to raise test data peformance
+ens_seeds <- vector(mode = "list", length = 51)
+# longest set of hyper-params is 33 (logistic mdl)
+for(i in 1:51) ens_seeds[[i]] <- sample.int(1000, 1)
 
 ensemble_control <- trainControl(
   summaryFunction = twoClassSummary,
@@ -799,9 +843,12 @@ ensemble_control <- trainControl(
   method = 'repeatedcv',
   number = 10,
   repeats = 5,
-  index = createFolds(bike_crashes_preProcessed$BikeInjurySerious, 10),
-  # only need the first element of each seeds list 
-  # since all hyper-params chosen
+  index = createMultiFolds(
+    bike_crashes_preProcessed$BikeInjurySerious, 
+    k = 10,
+    times = 5
+  ),
+  # only need 1 seed per 51 CV instances
   seeds = seeds %>% map(1)
 )
 
@@ -886,7 +933,7 @@ ensemble_train_perf$train_performance_plot
 
 ensemble_mdl_perf <- mdl_test_performance(
   ensemble_mdl, 
-  prob_cutoff = .068,
+  prob_cutoff = .069,
   ensemble = TRUE,  
   mdl_lst = model_list
 ) %>%
