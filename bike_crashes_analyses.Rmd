@@ -3,11 +3,7 @@ title: "Bike Crash Analyses"
 author: "Elliott O'Brien"
 date: '`r Sys.time()`'
 output:
-  html_document:
-    df_print: paged
-editor_options: 
-  markdown: 
-    wrap: 72
+  pdf_document
 ---
 
 ```{r setup, include = FALSE}
@@ -685,7 +681,14 @@ elsewhere.
 
 ```{r linear_preds}
 # Logistic Classification
-mdl_train_performance(log_mdl, conf_matrix = TRUE)
+log_train_perf <- mdl_train_performance(log_mdl, conf_matrix = TRUE)
+# customize output
+log_train_perf$train_conf_matrix
+log_train_perf$variable_importance %>%
+  arrange(desc(Overall)) %>%
+  slice(1:20) %>%
+  kable(caption = "Top 20 most import features", digits = 4)
+log_train_perf$train_performance_plot
 log_mdl_perf <- mdl_test_performance(log_mdl, prob_cutoff = .4517) %>% 
   mutate(model = 'logistic')
 log_mdl_perf %>% 
@@ -698,7 +701,14 @@ PCA does not seem to improve the logistic model enough to be useful.
 
 ```{r}
 # Logistic Classification with PCA
-mdl_train_performance(log_PCA_mdl, conf_matrix = TRUE)
+log_PCA_train_perf <- mdl_train_performance(log_PCA_mdl, conf_matrix = TRUE)
+# customize output
+log_PCA_train_perf$train_conf_matrix
+log_PCA_train_perf$variable_importance %>%
+  arrange(desc(Overall)) %>%
+  slice(1:20) %>%
+  kable(caption = "Top 20 most import features", digits = 4)
+log_PCA_train_perf$train_performance_plot
 log_PCA_perf <- mdl_test_performance(log_PCA_mdl, prob_cutoff = .465) %>%
   mutate(model = 'logistic w/ PCA')
 log_PCA_perf %>%
@@ -725,7 +735,15 @@ be used in ensemble model.
 
 ```{r naive_bayes_pred}
 # Naive Bayes
-mdl_train_performance(nb_mdl, conf_matrix = TRUE)
+nb_train_perf <- mdl_train_performance(nb_mdl, conf_matrix = TRUE)
+# customize output
+nb_train_perf$train_conf_matrix
+nb_train_perf$variable_importance %>%
+  transmute(Importance = Serious) %>%
+  arrange(desc(Importance)) %>%
+  slice(1:20) %>%
+  kable(caption = "Top 20 most import features", digits = 4)
+nb_train_perf$train_performance_plot
 nb_mdl_perf <- mdl_test_performance(nb_mdl, prob_cutoff = .265) %>% 
   mutate(model = 'naive bayes')
 nb_mdl_perf %>% 
@@ -744,7 +762,8 @@ knn_train_perf$train_conf_matrix
 knn_train_perf$variable_importance %>%
   transmute(Importance = Serious) %>%
   arrange(desc(Importance)) %>%
-  kable(caption = 'Variable importance', digits = 4)
+  slice(1:20) %>%
+  kable(caption = '"Top 20 most import features"', digits = 4)
 knn_train_perf$train_performance_plot
 
 knn_mdl_perf <- mdl_test_performance(knn_mdl, prob_cutoff = .4) %>%
@@ -760,7 +779,9 @@ knn_mdl_perf %>%
 rf_train_perf <- mdl_train_performance(rf_mdl, conf_matrix = TRUE)
 rf_train_perf$train_conf_matrix
 rf_train_perf$variable_importance %>%
-  arrange(desc(Overall))
+  arrange(desc(Overall)) %>%
+  slice(1:20) %>%
+  kable(caption = '"Top 20 most import features"', digits = 4)
 rf_mdl_perf <- mdl_test_performance(rf_mdl, prob_cutoff = .0945) %>% 
   mutate(model = 'random forest')
 rf_mdl_perf %>%
