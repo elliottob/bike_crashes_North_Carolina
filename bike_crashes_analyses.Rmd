@@ -773,25 +773,37 @@ The goal of this section to select the models that will go on to
 ensemble model.
 
 Logistic model, naive Bayes and random forests all perform similarly.
-However, the random forests model performs the best as far as optimizing
-sensitivity while balancing accuracy and specificity. Notice that the
-random forests model performs extremely well on the training set which
-is over optimistic as far as it's performance on new data. Notice that
-the random forests model has the biggest drop in performance for the
-test dataset.
-
-The logistic model has the second best test dataset peformance as it is
-not as good at balancing the specificity and thus accuracy is lost as
-well. As stated earlier, PCA did not make the logistic model perform
-better than without it and will not be included in the ensemble.
+However, both logistic models, with/without PCA included in the
+analysis, perform better than the others as far as optimizing
+sensitivity while balancing accuracy and specificity. Of the two
+logistic models, the one that includes the PCA with the model performs
+slightly better. Since the time difference for each logistic model is
+comparable, the PCA logistic model would seem like the most useful
+model. However, PCA model results are difficult to understand because
+they are linear combinations of other features. Therefore, the non-PCA
+version of the model will be used in the ensemble model since the
+performance isn't that different and is slightly faster. Also worth of
+note, if PCA is used in one model and not in others, the ensemble model
+is harder to interpret since it has mixed PCA features and raw feature
+names listed in caret::varImp.
 
 The naive Bayes model computes the fastest with the lower accuracy due
 to having a low specificity. Considering how fast the computation is and
 not having a huge drop in accuracy, this is still a reasonable model.
+Naive Bayes will be included in the ensemble model since it could be
+picking up on different features than the linear or other nonlinear
+models.
 
 K-nearest neighbors was the worst performer in accuracy due to the
 lowest specificity and therefore, will not move on to the ensemble
 model.
+
+Random forest model did not perform as well as expected give how well it
+performed on the training data. This seems to indicate that the model is
+over fit which is the opposite of what we'd expect from an ensemble
+decision tree count of 100 and 10-fold cross validation. It's possible
+that the random forest model is picking up on something that the other
+models aren't and will be included in the final ensemble model.
 
 ```{r model_summaries}
 list(
@@ -957,6 +969,12 @@ ensemble_mdl_perf %>%
 
 # Conclusions
 
+All model performance metrics are listed below with the ensemble model
+having the best performance. The ensemble model includes an elasticnet
+logistic model, naive Bayes model and a random forests model. The
+variable importance for all models including the overall ensemble model
+importance weight per predictor is provided.
+
 ```{r ensemble_vs_other_mdls}
 list(
   log_mdl_perf,
@@ -993,30 +1011,61 @@ list(
   kable(caption = 'Model Performances Comparison (w/ Ensemble)')
 ```
 
-clearly all models are quite similar in results except for the k-nearest
-neighbors model which suffered from losing specificity when attempting
-to match sensitivity of the linear models.
-
-Therefore the logistic model is selected as the best model. For this
-model, the top 20 most important variables are as follows:
+With the ensemble model being selected as the best model, the top 20
+most important variables are as follows:
 
 ```{r}
-var_imp <- varImp(rf_mdl)
-var_imp$importance %>%
-  rename(Importance = Overall) %>%
-  arrange(desc(Importance)) %>%
+ensemble_train_perf$variable_importance %>%
+  arrange(desc(overall)) %>%
+  slice(1:20) %>%
   kable(
-    caption = 'Top 20 most important features for Random Forests model', 
+    caption = "Top 20 most import features by each model and overall", 
     digits = 4
   )
 ```
 
-As it can be seen, rural crashes are the most severe as they usually
-have higher speed limits. The main take away from these results is that
-bicyclists are not being protected on rural roads where touring
-bicyclists spend most of their time. A recommendation that I have is to
-cities that book-end the roads that are most heavily traveled by
-bicyclists, invest in extending the shoulder of these roads and to
+## Possible Interpretations of Predictors and Suggestions
+
+The first 5 predictors by overall importance make sense as far as being
+predictive of serious bike crashes in that high speed limits (50 - 55
+mph), bicyclist under the influence of alcohol, bicyclist failing to
+yield mid-block and bike position crosswalk/crossing/driveway all point
+to the bicyclist not be a responsible commuter.
+
+Notice, I did not mention daylight conditions being the second highest
+predictor of serious bike accidents. This is because it is not really
+clear why this is such a good predictor. It could be due to low
+visibility or warning of a bicyclist and their intentions. If a
+bicyclist is biking at night, they would most likely have bike lights on
+which helps drivers to see that an unprotected traveler is in the road
+and gives their direction since the bike light points forward and tail
+light points backwards. In addition, during the day, there is more
+traffic on the street and the sidewalk which could distract drivers.
+
+It may seem surprising that straight roads is a good predictor serious
+bike crashes, but if you think about when you drive on a straight road
+for a while and you get into "the zone" where you don't remember the
+last 5-10 minutes of driving because you were on autopilot. This could
+be the case especially if the speeds are 40 - 55 mph where it would very
+difficult to avoid an obstacle in the road.
+
+I don't think we have enough data to explain why a driver's race is a
+predictor of seriousness of a bike-vehicle crash. We would need to know
+more about the state of North Carolina and how roads in predominantly
+black neighborhoods differ in bike friendliness and traffic from roads
+in predominantly white neighborhoods. We may find that there is an
+uneven distribution of bike friendly roads in either neighborhood which
+could affect a driver's experience how to share the road with a
+bicyclist. No conclusions can be made with the data we have here. These
+are just possible things we could look into with more socioecenomic
+data.
+
+Rural crashes are on the top 20 predictors list with development type:
+farms, woods, pastures; non-city rural. The main take away from these
+results is that bicyclists are not being protected on rural roads where
+touring bicyclists spend most of their time. A recommendation that I
+have is to cities that book-end the roads that are most heavily traveled
+by bicyclists, invest in extending the shoulder of these roads and to
 include bike signs. This could later be added to the bike crash data as
 "bicycle improved rural road" and the treatment could be tested again
 roads that were not treated (control).
