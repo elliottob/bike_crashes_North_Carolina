@@ -3,7 +3,11 @@ title: "Bike Crash Analyses"
 author: "Elliott O'Brien"
 date: '`r Sys.time()`'
 output:
-  pdf_document
+
+  pdf_document: 
+    toc: yes
+    fig_caption: yes
+    number_sections: yes
 ---
 
 ```{r setup, include = FALSE}
@@ -35,50 +39,20 @@ my_default_control <- trainControl(
 )
 ```
 
-# Background
+# Background and Motivation
 
-As an avid bicyclist, the bike crashes dataset from North Carolina
-definitely grabbed my attention. As a bicyclist, I have run into my
-share of scary roads, intersections that are not bicycle friendly. I'm
-interested in knowing how a city decides to upgrade a street or
-intersection to become more bicycle friendly. In this report, I will be
-investigating machine learning models with the caret package in R and
-attempt to find the best model that can predict a bike injury being
-"serious" vs. "non-serious". I will assume that this model will be used
-to find the road, bicyclist, and driver features that most affect the
-seriousness of an injury.
+Assuming I work for the state of North Carolina as a data scientist, I'm
+working on a project that will investigate bicycle safety in the state of 
+North Carolina in a effort to understand what factors to consider in decreasing
+the number serious bicycle injuries as caused by bicycle-vehicle collisions.
+
+In this report, I will be exploring machine learning models with the caret 
+package in R and attempt to find the best model or ensemble model that can 
+predict a bike injury being "serious" vs. "non-serious". The resulting model
+will be used to find the road, bicyclist, and driver features that most affect
+the seriousness of an injury.
 
 # Analytical Dataset
-
-The bike crashes dataset is sourced from the Department of
-Transportation in the state North Carolina from the years April 2007 -
-September 2019 ([North Carolina Bicycle and Pedestrian Crash Data Tool
-(pedbikeinfo.org)](https://www.pedbikeinfo.org/pbcat_nc/)). Raw data
-consists of 62 columns which are a mixture of numerical and character
-data types. The crash severity variable, CrashSevr, will be used as a
-response variable in a binary classification model, "Serious" vs.
-"Non-serious". Currently the variable is categorical with multiple
-levels of severity:
-
--   suspected serious injury
-
--   suspected minor injury
-
--   possible injury
-
--   killed
-
--   and no injury
-
-However, these will be re-binned as follows:
-
--   serious injury = {suspected serious injury OR killed}
-
--   non-serious injury = {no injury OR possible injury OR suspected
-    minor injury}
-
-and assigned to a new variable BikeInjurySerious which will be our
-response variable in our models.
 
 ```{r message=FALSE, warning=FALSE, include=FALSE}
 datacamp_dataset_repo <- 'https://raw.githubusercontent.com/datacamp/careerhub-data/master'
@@ -90,24 +64,201 @@ bike_crashes <- read_csv(
 )
 ```
 
+## Data Description
+
+The large number of variables (61) with multiple levels for some categorical 
+variables. 
+
 ```{r echo=FALSE}
-bike_crashes %>% glimpse()
+bike_crashes %>% 
+  map_df(class) %>% 
+  pivot_longer(
+    -c(OBJECTID_1), 
+    values_to = 'Data Type', 
+    names_to = 'Variable'
+  ) %>%
+  mutate(var_n = row_number()) %>%
+  select(-OBJECTID_1) %>%
+  select(var_n, everything()) %>% 
+  kable(caption = 'Dataset Feature Discription')
 ```
 
-## Data Issues
+The bike crashes dataset is sourced from the Department of
+Transportation in the state North Carolina from the years April 2007 -
+September 2019 ([North Carolina Bicycle and Pedestrian Crash Data Tool
+(pedbikeinfo.org)](https://www.pedbikeinfo.org/pbcat_nc/)). Raw data
+consists of 62 columns which are a mixture of numerical and character
+data types. The crash severity variable, CrashSevr, will be used as a
+response variable in a binary classification model, "Serious" vs.
+"Non-serious". Currently the variable is categorical with multiple
+levels of severity:
 
-There are many issues with the data set not being tidy and clean. Some
-variables will need to be converted to a numerical datatype for the
-machine learning models to work properly. Categorical character columns
-will need to be converted to factors. Dummy variables will be created
-for every column that is not numerical. This will likely increase the
-number of features in the dataset to the scale of hundreds of features.
-Feature reduction will be carried out to reduce memory usage and
-computation time of fitting models. Feature reduction will be carried
-out by removing features that have little to no variability and will
-thus not contribute much information to the models being used.
-Additionally, features that have high correlation with other features
+```{r}
+bike_crashes %>%
+  count(BikeInjury) %>%
+  mutate(pct = n / sum(n) * 100) %>%
+  kable(caption = 'Raw bike injury class values', digits = 2)
+```
+
+However, since we are only interested in reducing severe injuries, the 5
+categories above will be re-binned into 'Serious' and 'Non-Serious' injuries as 
+follows:
+
+-   serious injury = {suspected serious injury OR killed}
+
+-   non-serious injury = {no injury OR possible injury OR suspected
+    minor injury}
+
+and assigned to a new variable BikeInjurySerious which will be our
+response variable in our models.  Below is a summary of the prevalence of 
+serious injuries to bicyclists.  As it can be seen the classes are unbalanced
+with only 7.44% of the observations resulting in serious injuries to the
+bicyclist.  This unbalance will be talked about in more detail in the 
+performance metrics section below.
+
+```{r}
+bike_crashes %>% 
+  mutate(
+    BikeInjurySerious = if_else(str_detect(BikeInjury, 'A: |K: '), 'Yes', 'No')
+  ) %>% 
+  count(BikeInjurySerious) %>%
+  mutate(
+    pct = n / sum(n) * 100
+  ) %>%
+  kable(caption = 'Prevalence of Serious Bike Accidents', digits = 2)
+```
+
+# Performance Metrics
+
+Due to the imbalance of the target classes, 7.44% are serious injuries and 
+92.56% non-serious, the performance metric accuracy will not be useful in
+selecting the best model.  ROC area under the curve (AUC) is a more useful
+metric as it attempts to balance the true positive rate (sensitivity) and the
+false positive rate by optimizing the area under the curve created by graphing
+false positive rate vs. true positive rate.
+
+After training the models on training data, optimum probability cut-off 
+values will be explored using model predictions. The best probability cut-off 
+will be determined based on the assumption that the cost of a false negative,
+predict non-serious injury when in-fact was a serious injury, is higher
+than a false positive, predict serious injury when in-fact was
+non-serious injury. The high cost for a false negative is higher because
+lives could potentially be lost or a life-changing injury, while the
+false positive only results in potentially spending more money on road
+safety for bicyclists which pays off in the long run anyways. Therefore,
+probability cut-offs will be chosen to optimize sensitivity (true
+positive rate) along with accuracy, with specificity (false negative
+rate) being the last priority. With this in mind, let's assume that we
+want to have as close to 75% for sensitivity. Specificity can be relaxed as 
+low as 50%. The models that don't meet these criteria will not be included in an 
+ensemble model.
+
+# Data Exploration
+
+## Data Prep and Cleaning
+
+data cleaning is done in this section using tidyverse methods.
+
+### Data Issues
+
+There are many issues with the data set not being tidy and clean. Some variables will need to be converted to
+a numerical datatype for the machine learning models to work properly. Categorical character columns will
+need to be converted to factors. Dummy variables will be created for every column that is not numerical. This
+will likely increase the number of features in the dataset to the scale of hundreds of features. Feature reduction
+will be carried out to reduce memory usage and computation time of fitting models. Feature reduction will
+be carried out by removing features that have little to no variability and will thus not contribute much
+information to the models being used. Additionally, features that have high correlation with other features
 will be removed to improve model performance.
+
+Some observations in the dataset that are missing data and these values have been imputed manually. For
+numerical missing data such as age missing values were imputed based on medians of age groups if age
+group variable is available, otherwise age was imputed using the median age of the full dataset based on
+the variable in question. For categorical variables, after being converted to dummy variables (i.e. 0 or 1 in
+value), missing values were imputed with a 0 to help in achieving a complete dataset as possible.
+
+#### Unneccessary variables
+
+The following variables are obviously copies of other variables.
+
+*   X and Y are longitude and latitude which are already present in the data
+*   OBJECTID and OBJECTID_1 seem like a row number id which is not a very useful 
+feature.  Also these are duplicated columns.
+
+```{r clean_data, echo=TRUE, message=FALSE, warning=FALSE}
+bike_crashes <- bike_crashes %>%
+  select(-X, -Y, -matches('OBJECT'))
+```
+
+*Deaths and bicyclst killed descrepency*
+
+```{r}
+bike_crashes %>%
+  summarize(
+    total_deaths = sum(str_detect(CrashSevr, 'K:')),
+    total_bike_killed = sum(str_detect(BikeInjury, 'K:')),
+    total_drvr_killed = sum(str_detect(DrvrInjury, 'K:'))
+  ) %>%
+  mutate(
+    total_bike_drvr_killed = total_bike_killed + total_drvr_killed
+  ) %>%
+  kable(caption = 'Death count discrepency of dataset')
+```
+
+278 total deaths, 7 deaths that aren't clear since there is no indication if
+bicyclist or driver was killed.  271 deaths that were biking or driving, mostly 
+bicyclist (269) deaths. There are only 2 driver deaths in the whole dataset.
+
+These are the 7 deaths that can't be explained by bicyclist(s) and
+driver(s). There seems to be a third party involved that is not listed in
+records, i.e. other pedestrian or other cyclist that didn't cause the crash
+but was affected by the crash.
+
+Since we are most concerned with serious bicycle injuries, these records will be
+leaved as is since no serious injury to the bicyclist was recorded.  However, it
+the CrashSevr and DrvrInjury variables will be removed since we already have 
+BikeInjury variable.
+
+```{r}
+bike_crashes <- bike_crashes %>%
+  select(-DrvrInjury, -CrashSevr)
+```
+
+*Duplicates*
+
+Note duplicate crash report for CrashID == 1041566349; note that only
+CrashLoc and CrashType are different. Based on the first record, the driver is
+taking a right turn, but listed as non-intersection; in second record,
+CrashType is "motorist overtaking - Other/Unknown" and Crash Location is
+listed as intersection. Therefore, the CrashLoc was likely an intersection
+where a motorist overtook a bicyclist.  This crash record will need to be
+fixed to reflect this and remove duplication.
+
+```{r}
+bike_crashes[duplicated(bike_crashes$CrashID), 'CrashID'] %>% 
+  kable(caption = 'Duplicate Record CrashID')
+bike_crashes %>%
+  filter(CrashID == 104156349) %>%
+  glimpse()
+```
+
+```{r}
+# Fix duplicate record
+bike_crashes <- 
+  bike_crashes %>%
+  filter(CrashID != '104156349') %>%
+  bind_rows(
+    bike_crashes %>% 
+      filter(CrashID == '104156349') %>%
+      slice(1) %>% # grab first record and make changes
+      mutate(
+        CrashLoc = 'Intersection-Related',
+        CrashType = 'Motorist Right Turn - Same Direction',
+        CrashGrp = 'Motorist Right Turn / Merge'
+      )
+  )
+```
+
+### General data preparation
 
 Some observations in the dataset that are missing data and these values
 have been imputed manually. For numerical missing data such as age
@@ -118,71 +269,495 @@ variables, after being converted to dummy variables (i.e. 0 or 1 in
 value), missing values were imputed with a 0 to help in achieving a
 complete dataset as possible.
 
-# Data Preparation (separate file)
+```{r}
+#################
+# Data Cleaning #
+#################
+bike_crashes_clean <- 
+  bike_crashes %>%
+  mutate(
+    AmbulanceR = fct_relevel(AmbulanceR, 'No', 'Yes'),
+    BikeAge = as.numeric(BikeAge),
+    # unlikely anyone over 100 years old
+    BikeAge = if_else(BikeAge > 100 | BikeAge == 'Unknown', NA_real_, BikeAge),
+    BikeAgeGrp = case_when(
+      BikeAgeGrp == '06-Oct' ~ '6-10',
+      BikeAgeGrp == 'Nov-15' ~ '11-15',
+      BikeAgeGrp == 'Unknown' ~ NA_character_,
+      TRUE ~ BikeAgeGrp
+    ),
+    BikeAlcDrg = case_when(
+      BikeAlcDrg == '.' ~ NA_character_,
+      BikeAlcDrg == 'Missing' ~ NA_character_,
+      BikeAlcDrg == 'Unknown' ~ NA_character_,
+      TRUE ~ BikeAlcDrg
+    ),
+    BikeAlcFlg = case_when(
+      BikeAlcFlg == 'Missing' ~ NA_character_,
+      BikeAlcFlg == 'Unknown' ~ NA_character_,
+      TRUE ~ BikeAlcFlg
+    ),
+    BikeAlcFlg = fct_relevel(BikeAlcFlg, 'No', 'Yes'),
+    BikeDir = if_else(BikeDir == 'Unknown', NA_character_, BikeDir),
+    BikePos = if_else(BikePos == 'Unknown', NA_character_, BikePos),
+    BikeRace = if_else(BikeRace == 'Unknown/Missing', NA_character_, BikeRace),
+    BikeSex = if_else(BikeSex == 'Unknown', NA_character_, BikeSex),
+    BikeSex = fct_relevel(BikeSex, 'Male', 'Female'),
+    CrashAlcoh = fct_relevel(CrashAlcoh, 'No', 'Yes'),
+    CrashGrp = if_else(
+      CrashGrp == 'Other / Unknown - Insufficient Details', 
+      NA_character_, 
+      CrashGrp
+    ),
+    CrashLoc = if_else(CrashLoc == 'Unknown Location', NA_character_, CrashLoc),
+    CrashDay = factor(CrashDay,
+      levels = c('Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 
+                 'Friday', 'Saturday')
+    ),
+    CrashMonth = factor(CrashMonth,
+      levels = c('January', 'February', 'March' ,'April', 'May', 
+                 'June', 'July', 'August', 'September', 'October', 
+                 'November', 'December')
+    ),
+    CrashType = if_else(
+      CrashType %in% c('Unknown Approach Paths', 'Unknown Location'), 
+      NA_character_, 
+      CrashType
+    ),
+    CrashType = str_replace_all(CrashType, '\\s|-|/', '.'),
+    CrashType = str_replace_all(CrashType, '\\.{2,}', '.'),
+    DrvrAge = as.numeric(DrvrAge),
+    # unlikely anyone over 100 years old
+    DrvrAge = if_else(
+      DrvrAge > 100 | DrvrAge == '70+' | DrvrAge == 'Unknown', 
+      NA_real_, 
+      DrvrAge
+    ),
+    DrvrAgeGrp = if_else(
+      DrvrAgeGrp == 'Unknown', 
+      NA_character_, 
+      DrvrAgeGrp
+    ),
+    DrvrAlcDrg = case_when(
+      DrvrAlcDrg == '.' ~ NA_character_,
+      DrvrAlcDrg == 'Missing' ~ NA_character_,
+      DrvrAlcDrg == 'Unknown' ~ NA_character_,
+      TRUE ~ DrvrAlcDrg
+    ),
+    DrvrAlcFlg = case_when(
+      DrvrAlcFlg == 'Missing' ~ NA_character_,
+      DrvrAlcFlg == 'Unknown' ~ NA_character_,
+      TRUE ~ DrvrAlcFlg
+    ),
+    DrvrAlcFlg = fct_relevel(DrvrAlcFlg, 'No', 'Yes'),
+    DrvrRace = if_else(
+      DrvrRace == 'Unknown/Missing', 
+      NA_character_, 
+      DrvrRace
+    ),
+    DrvrSex = if_else(DrvrSex == 'Unknown', NA_character_, DrvrSex),
+    DrvrSex = fct_relevel(DrvrSex, 'Male', 'Female'),
+    HitRun = fct_relevel(HitRun, 'No', 'Yes'),
+    LightCond = if_else(LightCond == 'Unknown', NA_character_, LightCond),
+    NumBicsAin = if_else(NumBicsAin == '.', NA_character_, NumBicsAin),
+    NumBicsBin = if_else(NumBicsBin == '.', NA_character_, NumBicsBin),
+    NumBicsCin = if_else(NumBicsCin == '.', NA_character_, NumBicsCin),
+    NumBicsKil = if_else(NumBicsKil == '.', NA_character_, NumBicsKil),
+    NumBicsNoi = if_else(NumBicsNoi == '.', NA_character_, NumBicsNoi),
+    NumBicsUin = if_else(NumBicsUin == '.', NA_character_, NumBicsUin),
+    NumBicsTot = if_else(NumBicsTot == '.', NA_character_, NumBicsTot),
+    NumLanes = if_else(NumLanes == 'Unknown', NA_character_, NumLanes),
+    NumLanes = if_else(NumLanes == '9 or more lanes', '9+ lanes', NumLanes),
+    NumLanes = factor(NumLanes, 
+      levels = c('1 lane', '2 lanes', '3 lanes', '4 lanes', '5 lanes', 
+                 '6 lanes', '7 lanes', '8 lanes', '9+ lanes')
+    ),
+    RdCharacte = if_else(RdCharacte == 'Unknown', NA_character_, RdCharacte),
+    RdClass = if_else(RdClass %in% c('.', 'missing', 'Unknown'), NA_character_, RdClass),
+    RdConditio = if_else(RdConditio == 'Unknown', NA_character_, RdConditio),
+    RdConfig = if_else(RdConfig == 'Unknown', NA_character_, RdConfig),
+    RdDefects = if_else(RdDefects %in% c('Unknown', 'Missing'), NA_character_, RdDefects),
+    RdFeature = if_else(RdFeature == 'Missing', NA_character_, RdFeature),
+    RdSurface = if_else(RdSurface %in% c('Unknown', 'Missing'), NA_character_, RdSurface),
+    RuralUrban = if_else(RuralUrban == '.', NA_character_, RuralUrban),
+    SpeedLimit = if_else(SpeedLimit == 'Unknown', NA_character_, SpeedLimit),
+    # extra spaces between meaure and units have been removed
+    SpeedLimit = str_replace(SpeedLimit, '\\s{2}', ' '), 
+    SpeedLimit = factor(SpeedLimit,
+      levels = c('5 - 15 MPH', '20 - 25 MPH', '30 - 35 MPH', '40 - 45 MPH', 
+                 '50 - 55 MPH', '60 - 75 MPH')
+    ),
+    TraffCntrl = if_else(TraffCntrl == 'Missing', NA_character_, TraffCntrl),
+    Workzone = fct_relevel(Workzone, 'No', 'Yes')
+  ) %>%
+  # transform char columns that need to be split
+  separate(
+    col = BikeInjury,
+    into = c('BikeInjuryCat', 'BikeInjuryDisc'),
+    sep = ': '
+  ) %>%
+  mutate(
+    BikeInjuryCat = if_else(BikeInjuryCat == 'Unknown Injury', 'U', BikeInjuryCat),
+    BikeInjuryDisc = if_else(is.na(BikeInjuryDisc), 'Unknown Injury', BikeInjuryDisc),
+    # create dichotomous response variable in case multinomial isn't fruitful
+    BikeInjurySerious = case_when(
+      BikeInjuryCat %in% c('A' ,'K') ~ 1, 
+      BikeInjuryCat %in% c('B', 'C', 'O') ~ 0,
+      BikeInjuryCat %in% c('U') ~ NA_real_
+    )
+  ) %>%
+  filter(
+    !is.na(BikeInjurySerious)
+  )
+```
 
-All data preparation is done in a separate file for brevity. See
-data_exploration.rmd to view the details.
+### Missing data
 
-```{r data_prep_render, message=FALSE, warning=FALSE, include=FALSE}
-rmarkdown::render('data_exploration.Rmd')
+The amount of data missing throughout the dataset are noticeable and should imputed
+if possible.  NumBics columns have the most missing data with 54.9%  missing.
+It's unlikely that NumBics will be able to be imputed since majority values are
+missing.
+
+```{r}
+# percent of missing data in each column
+bike_crashes_clean %>%
+  map(~ round(sum(is.na(.x)) / nrow(bike_crashes_clean) * 100, 1)) %>%
+  map_df(~ if(.x > 0) .x) %>%
+  mutate(tmp = NA) %>%
+  pivot_longer(-tmp, values_to = '% missing', names_to = 'Variable') %>%
+  select(-tmp) %>%
+  kable(caption = 'Variables with missing values')
+```
+
+### Median imputation of biker age and driver age
+
+```{r}
+######################
+# Median Imputations #
+######################
+bike_crashes_clean <- bike_crashes_clean %>%
+  # group specific calculations and imputations
+  group_by(BikeAgeGrp) %>%
+  mutate(
+    # median imputation for age group 70+
+    BikeAge = if_else(is.na(BikeAge), median(BikeAge, na.rm = T), BikeAge)
+  ) %>%
+  ungroup() %>%
+  # if no age group given for biker, just use median value of full dataset
+  mutate(
+    BikeAge = if_else(is.na(BikeAge), median(BikeAge, na.rm = T), BikeAge)
+  ) %>%
+  group_by(DrvrAgeGrp) %>%
+  mutate(
+    # median imputation for age (years) recorded as 70+
+    DrvrAge = if_else(is.na(DrvrAge), median(DrvrAge, na.rm = T), DrvrAge)
+  ) %>%
+  ungroup() %>%
+  # if no age group given for driver, just use median value of full dataset
+  mutate(
+    DrvrAge = if_else(is.na(DrvrAge), median(DrvrAge, na.rm = T), DrvrAge)
+  ) %>%
+  # convert all character vectors to factors
+  mutate(across(where(is.character), ~ factor(.x))) %>%
+  # find and remove any factor variables with less than 2 factors
+  select(-where(~is.factor(.x) & length(levels(.x)) < 2)) %>% 
+  # fill in NA's with No's if a Yes/No variable to preserve data
+  mutate(across(where(
+    ~is.factor(.x) & 'No' %in% levels(.x)), 
+    ~replace_na(.x, 'No')
+  ))
+```
+
+### Exploratory Data Analysis
+
+#### Response Variable: Serious Bike Injury
+
+Let's take a look at a geographical map of the serious crashes in the
+data set.  The geographical data is sourced from R's maps package.  As it can 
+be seen from the map below, a majority of the crashes seem to be occurring in
+counties where large cities are located.
+
+```{r explore_bike_crashes, echo=TRUE, message=FALSE, warning=FALSE}
+
+county_bike_crashes <- bike_crashes_clean %>%
+  filter(BikeInjurySerious == 1) %>%
+  group_by(County) %>%
+  summarize(
+    crashes = n_distinct(CrashID)
+  )
+
+NC_map_coords <- map_data("county", "North Carolina") %>% 
+  transmute(
+    lon = long, 
+    lat, 
+    group, 
+    county = str_to_title(subregion)
+  )
+
+NC_city_coords <- maps::us.cities %>% 
+  filter(country.etc == 'NC') %>%
+  transmute(
+    name,
+    lon = long,
+    lat,
+    pop,
+    pop_pct = pop / sum(pop)
+  )
+
+NC_bike_crash_map_coords <- NC_map_coords %>%
+  left_join(
+    county_bike_crashes, 
+    by = c('county' = 'County')
+  ) %>% 
+  group_by(county) %>%
+  mutate(
+    log_crashes = log(crashes),
+    log_crashes = if_else(log_crashes == -Inf, 0, log_crashes)
+  )
+
+ggplot(mapping = aes(lon, lat)) +
+  geom_polygon(
+    mapping = aes(group = county, fill = crashes),
+    col = 'grey',
+    data = NC_bike_crash_map_coords
+  ) +
+  geom_point( 
+    aes(size = pop_pct),
+    color = 'black',
+    alpha = .5,
+    data = NC_city_coords
+  ) +
+  scale_fill_continuous(
+    name = 'County serious\ninjury count',
+    type = "viridis"
+  ) +
+  scale_size_area(name = 'City pop percent') +
+  coord_quickmap() +
+  ggtitle(
+    'North Carolina: serious Injuries by county',
+    subtitle = 'with city populations'
+  )
+```
+
+The table below confirms that around 50% of the bike accidents with serious
+injury occur in urban areas (>70% developed), followed by 32.5% of serious
+injuries being in rural areas (<30% developed).
+
+```{r}
+bike_crashes_clean %>% 
+  count(Locality, BikeInjurySerious) %>%
+  mutate(
+    BikeInjurySerious = if_else(BikeInjurySerious == 1, 'Yes', 'No'),
+    pct = n / sum(n) * 100
+  ) %>%
+  kable(caption = 'Bike injury by locality', digits = 2)
+```
+
+### Explore categorical variables
+
+```{r}
+bike_crashes %>% 
+  mutate(across(where(is.character), factor)) %>%
+  select(where(~length(levels(.x)) <= 12)) %>%
+  select(-matches('Age'), -matches('Alc'), -matches('Injury')) %>%
+  map(summary) %>%
+  map(names) %>%
+  map(~ .x[.x != '.'])
+bike_crashes %>% 
+  mutate(across(where(is.character), factor)) %>%
+  select(where(~length(levels(.x)) > 12)) %>%
+  select(-matches('Age'), -matches('Alc'), -matches('Injury')) %>%
+  map(summary) %>%
+  map(names) %>%
+  map(~ .x[.x != '.'])
+```
+
+
+### Explore numerical variables
+
+```{r}
 ```
 
 # Pre-Processing and Model Setup
 
-Using the caret package, a pre-processing step will be used to remove
-near-zero variance variables from the data set. All imputation has been
-done in the data preparation stage. The trainControl object will be used
-to control the type of cross validation used to decrease overfitting.
+Some variables will need to be converted to a numerical datatype for the
+machine learning models to work properly. Categorical character columns
+will need to be converted to factors. Dummy variables will be created
+for every column that is not numerical. This will likely increase the
+number of features in the dataset to the scale of hundreds of features.
 
-Pre-Processing to be carried out:
+Feature reduction will be carried out to reduce memory usage and computation 
+time of fitting models. Feature reduction will be carried out by removing 
+features are highly correlated or that have little to no variability and will 
+thus not contribute much information to the models being used.  
 
--   remove near-zero variance for feature reduction
+## Create Dummy Variables
 
--   attempt principal components analysis (PCA) for feature reduction
+convert categorical variables to dummy variables. Some name fixes will be 
+required to make column names more consistent.If any binary features have NA's
+then replace with 0's to preserve largest complete dataset possible.
 
--   training dataset accounts for 80% of the full dataset, while testing
-    dataset will account for 20%.
+```{r create_dummies}
+bike_crash_dummies_mdl <- dummyVars(
+  # keep BikeInjurySerious in the matrix since already numeric
+  ~ ., 
+  data = bike_crashes_clean,
+  sep = '.',
+  fullRank = TRUE
+)
 
-```{r pre_process}
+bike_crash_dummies <- predict(
+  bike_crash_dummies_mdl, 
+  newdata = bike_crashes_clean
+)
 
-########################
-# Check Missing Values #
-########################
+# clean up variable names
+bike_crash_dummies <- bike_crash_dummies %>% 
+  as_tibble() %>%
+  rename_with(
+    function(x) {
+      tmp <- str_replace_all(x, '\\s|/|-', '.')
+      tmp <- str_replace_all(tmp, '\\(|\\)|\\+|\\,', '')
+      tmp <- str_replace_all(tmp, '>', 'GT')
+      tmp <- str_replace_all(tmp, '<', 'LT')
+      tmp <- str_replace_all(tmp, '%', 'pct')
+      tmp <- str_replace_all(tmp, '\\.{2,}', '.')
+    }
+  )
 
-# All missing data should have been imputed up to this point
+# fill in NA's for binary variables with zero since there was no detection
+bike_crash_dummies <- bike_crash_dummies %>% 
+  mutate(across(
+    where(~n_distinct(.x) == 3 & any(is.na(unique(.x)))), 
+    ~replace_na(.x, 0)
+  ))
 
-# percent of missing data in each column
-# bike_crash_dummies %>%
-#   map(~ round(sum(is.na(.x)) / nrow(bike_crash_dummies) * 100, 1)) %>%
-#   as_tibble() %>%
-#   kable(caption = 'Variables with more than 10% missing values')
+# bike_crash_dummies %>% glimpse()
+```
 
-################################################
-# Split Data into training and testing dataset #
-################################################
+## Correlated Variables
+
+In this section, correlated features will be removed based on complete cases.
+Any variables with zero variance after filtering for complete cases will be
+removed because they won't offer any information to a model.
+
+```{r corr_vars}
+# if we look at correlation we'll have to use complete cases
+# let's see what variables have the most missing data
+# since approximately 13-14% are missing. With certain models complete.obs 
+# should be sufficient.
+
+# after filtering for complete cases, how many vars would have zero variance?
+zero_variance_vars <- bike_crash_dummies %>%
+  filter(complete.cases(.)) %>%
+  nearZeroVar(., saveMetrics=TRUE) %>%
+  filter(zeroVar) %>% 
+  rownames()
+
+# remove variables that are zero-variance after removing rows w/ missing data
+bike_crash_dummies <- 
+  bike_crash_dummies %>%
+  select(-zero_variance_vars)
+
+# Check for any correlated predictors
+# compute correlation
+bike_crash_dummies_cor <- cor(
+  bike_crash_dummies %>%
+    select(-BikeInjurySerious), # don't check the response variable
+  use = 'complete.obs'
+)
+
+# find variables with high pair-wise correlation to potentially remove
+correlated_vars <- findCorrelation(
+  bike_crash_dummies_cor, 
+  cutoff = .75, # default (.90)
+  names = TRUE
+)
+
+# remove highly correlated variables of interest and zero var. variables
+bike_crash_dummies <- bike_crash_dummies %>%
+  select(
+    -correlated_vars
+  )
+```
+
+## Variables that are directly related to response
+
+The following variables are directly related to the response and if used in a 
+model, the results would be overly optimistic.
+
+*   Ambulance - if ambulance used then it would already known to be serious.
+*   BikeInjuryDisc - directly related to response
+*   BikeInjuryCat - directly related to response
+*   NumBicsX - all variables are related to the BikeInjuryCat
+
+```{r}
+bike_crash_dummies <- bike_crash_dummies %>%
+  select(
+    -matches('AmbulanceR'),
+    -matches('Disc'),
+    -matches('Cat'),
+    -(NumBicsAin.1:NumBicsNoi.2)
+  )
+```
+
+## Save Datasets
+
+At this point dataset have been cleaned as much as possible. Save datasets.
+
+```{r save_derived_data}
+saveRDS(bike_crashes_clean, './derived_data/bike_crashes_clean.rds')
+saveRDS(bike_crash_dummies, './derived_data/bike_crash_dummies.rds')
+# remove everything from the environment to releive memory
+rm(list = ls())
+```
+
+# Model Development
+
+## Create train and test dataset partitions
+
+training dataset accounts for 80% of the full dataset, while testing dataset 
+will account for 20%.
+
+```{r}
+loadRDS('./derived_data/bike_crash_dummies.rds')
 set.seed(24)
 
-train_index <- createDataPartition(bike_crash_dummies$BikeInjurySerious, p = .8, list=FALSE)
+train_index <- createDataPartition(
+  bike_crash_dummies$BikeInjurySerious, 
+  p = .8, 
+  list=FALSE
+)
 train_dat <- bike_crash_dummies[train_index,]
 test_dat <- bike_crash_dummies[-train_index,]
 
-##################
-# Pre-Processing #
-##################
+train_dat %>%
+  count(BikeInjurySerious) %>%
+  mutate(pct = n / sum(n) * 100) %>%
+  kable(caption = 'Train data: response class summary')
 
-# attempt some imputations if possible
+test_dat %>%
+  count(BikeInjurySerious) %>%
+  mutate(pct = n / sum(n) * 100) %>%
+  kable(caption = 'Test data: response class summary')
+```
+
+## Remove near-zero variance features
+
+Remove variables that have near-zero variance since they will likely not
+contribute much information to the classification models. Any variable that
+has less than 5% distinct values out of total number of samples will be removed. 
+
+```{r near_zero_variance}
 preproc_mdl <- preProcess(
   train_dat %>%
     select(-BikeInjurySerious) %>% 
     as.data.frame,
-  # centering and scaling done by knnImpute
   method = c(
     'nzv'
   ),
-  uniqueCut = 5
+  uniqueCut = 5 # % cutoff
 )
-
-# preproc_mdl
 # preproc_mdl$method
 
 # run the preProcess predictions to create new dataset
@@ -190,10 +765,11 @@ bike_crashes_preProcessed <- predict(
   preproc_mdl,
   train_dat %>% as.data.frame
 )
-bike_crashes_preProcessed %>% glimpse()
 
 # convert the BikeInjurySerious variable from numeric to a factor that is
 # variable name friendly
+
+# train dataset
 bike_crashes_preProcessed <-
   bike_crashes_preProcessed %>%
     mutate(
@@ -203,6 +779,7 @@ bike_crashes_preProcessed <-
       )
     )
 
+# test dataset
 test_dat <-
   test_dat %>%
     mutate(
@@ -211,31 +788,6 @@ test_dat <-
         levels = c('Serious', 'Non.Serious')
       )
     )
-
-#######################
-# train and test data #
-#######################
-
-# bike_crashes_preProcessed %>%
-#  glimpse()
-
-# Serious Injuries are rare events, consider using down/up sampling
-bike_crashes_preProcessed %>% 
-  count(BikeInjurySerious) %>% 
-  mutate(pct = n / sum(n) * 100) %>%
-  kable(caption = 'Preprocessed training data class summary')
-
-# Test data class summary
-test_dat %>% 
-  mutate(
-    BikeInjurySerious = factor(
-      if_else(BikeInjurySerious == 1, 'Serious', 'Non.Serious'),
-      levels = c('Serious', 'Non.Serious')
-    )
-  ) %>%
-  count(BikeInjurySerious) %>% 
-  mutate(pct = n / sum(n) * 100) %>%
-  kable(caption = 'Test data data class summary')
 ```
 
 # Modeling
@@ -508,22 +1060,6 @@ accuracy is not necessarily the best at classifying observations. In
 fact, a model that predicts non-serious 100% of the time has a model
 accuracy of 95% since the prevalence of serious injury is 5% in the
 dataset.
-
-Optimum probability cut-off values will be explored using model
-predictions on the training dataset. The best probability cut-off will
-be determined based on the assumption that the cost of a false negative,
-predict non-serious injury when in-fact was a serious injury, is higher
-than a false positive, predict serious injury when in-fact was
-non-serious injury. The high cost for a false negative is higher because
-lives could potentially be lost or a life-changing injury, while the
-false positive only results in potentially spending more money on road
-safety for bicyclists which pays off in the long run anyways. Therefore,
-probability cut-offs will be chosen to optimize sensitivity (true
-positive rate) along with accuracy, with specificity (false negative
-rate) being the last priority. With this in mind, let's assume that we
-want to have at close to 75% for sensitivity, and above 60% for
-accuracy. Specificity can be relaxed as low as 50%. The models that
-don't meet these criteria will not be included in an ensemble model.
 
 All final predictions will be based on test dataset.
 
