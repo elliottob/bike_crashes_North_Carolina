@@ -10,7 +10,7 @@ output:
     number_sections: yes
 ---
 
-```{r setup, include = FALSE}
+```{r setup, message=FALSE, warning=FALSE, include = FALSE}
 library('knitr')
 knitr::opts_chunk$set(
 	echo = TRUE,
@@ -41,16 +41,9 @@ my_default_control <- trainControl(
 
 # Background and Motivation
 
-Assuming I work for the state of North Carolina as a data scientist, I'm
-working on a project that will investigate bicycle safety in the state of 
-North Carolina in a effort to understand what factors to consider in decreasing
-the number serious bicycle injuries as caused by bicycle-vehicle collisions.
+Assuming I work for the state of North Carolina as a data scientist, I'm working on a project that will investigate bicycle safety in the state of North Carolina in a effort to understand what factors to consider in decreasing the number serious bicycle injuries as caused by bicycle-vehicle collisions.
 
-In this report, I will be exploring machine learning models with the caret 
-package in R and attempt to find the best model or ensemble model that can 
-predict a bike injury being "serious" vs. "non-serious". The resulting model
-will be used to find the road, bicyclist, and driver features that most affect
-the seriousness of an injury.
+In this report, I will be exploring machine learning models with the caret package in R and attempt to find the best model or ensemble model that can predict a bike injury being "serious" vs. "non-serious". The resulting model will be used to find the road, bicyclist, and driver features that most affect the seriousness of an injury.
 
 # Analytical Dataset
 
@@ -66,10 +59,9 @@ bike_crashes <- read_csv(
 
 ## Data Description
 
-The large number of variables (61) with multiple levels for some categorical 
-variables. 
+The large number of variables (61) with multiple levels for some categorical variables.
 
-```{r echo=FALSE}
+```{r describe_data, message=FALSE, warning=FALSE, echo=FALSE}
 bike_crashes %>% 
   map_df(class) %>% 
   pivot_longer(
@@ -83,40 +75,24 @@ bike_crashes %>%
   kable(caption = 'Dataset Feature Discription')
 ```
 
-The bike crashes dataset is sourced from the Department of
-Transportation in the state North Carolina from the years April 2007 -
-September 2019 ([North Carolina Bicycle and Pedestrian Crash Data Tool
-(pedbikeinfo.org)](https://www.pedbikeinfo.org/pbcat_nc/)). Raw data
-consists of 62 columns which are a mixture of numerical and character
-data types. The crash severity variable, CrashSevr, will be used as a
-response variable in a binary classification model, "Serious" vs.
-"Non-serious". Currently the variable is categorical with multiple
-levels of severity:
+The bike crashes dataset is sourced from the Department of Transportation in the state North Carolina from the years April 2007 - September 2019 ([North Carolina Bicycle and Pedestrian Crash Data Tool (pedbikeinfo.org)](https://www.pedbikeinfo.org/pbcat_nc/)). Raw data consists of 62 columns which are a mixture of numerical and character data types. The crash severity variable, CrashSevr, will be used as a response variable in a binary classification model, "Serious" vs. "Non-serious". Currently the variable is categorical with multiple levels of severity:
 
-```{r}
+```{r echo=FALSE, message=FALSE, warning=FALSE }
 bike_crashes %>%
   count(BikeInjury) %>%
   mutate(pct = n / sum(n) * 100) %>%
   kable(caption = 'Raw bike injury class values', digits = 2)
 ```
 
-However, since we are only interested in reducing severe injuries, the 5
-categories above will be re-binned into 'Serious' and 'Non-Serious' injuries as 
-follows:
+However, since we are only interested in reducing severe injuries, the 5 categories above will be re-binned into 'Serious' and 'Non-Serious' injuries as follows:
 
 -   serious injury = {suspected serious injury OR killed}
 
--   non-serious injury = {no injury OR possible injury OR suspected
-    minor injury}
+-   non-serious injury = {no injury OR possible injury OR suspected minor injury}
 
-and assigned to a new variable BikeInjurySerious which will be our
-response variable in our models.  Below is a summary of the prevalence of 
-serious injuries to bicyclists.  As it can be seen the classes are unbalanced
-with only 7.44% of the observations resulting in serious injuries to the
-bicyclist.  This unbalance will be talked about in more detail in the 
-performance metrics section below.
+and assigned to a new variable BikeInjurySerious which will be our response variable in our models. Below is a summary of the prevalence of serious injuries to bicyclists. As it can be seen the classes are unbalanced with only 7.44% of the observations resulting in serious injuries to the bicyclist. This unbalance will be talked about in more detail in the performance metrics section below.
 
-```{r}
+```{r echo=FALSE, message=FALSE, warning=FALSE, }
 bike_crashes %>% 
   mutate(
     BikeInjurySerious = if_else(str_detect(BikeInjury, 'A: |K: '), 'Yes', 'No')
@@ -130,28 +106,9 @@ bike_crashes %>%
 
 # Performance Metrics
 
-Due to the imbalance of the target classes, 7.44% are serious injuries and 
-92.56% non-serious, the performance metric accuracy will not be useful in
-selecting the best model.  ROC area under the curve (AUC) is a more useful
-metric as it attempts to balance the true positive rate (sensitivity) and the
-false positive rate by optimizing the area under the curve created by graphing
-false positive rate vs. true positive rate.
+Due to the imbalance of the target classes, 7.44% are serious injuries and 92.56% non-serious, the performance metric accuracy will not be useful in selecting the best model. ROC area under the curve (AUC) is a more useful metric as it attempts to balance the true positive rate (sensitivity) and the false positive rate by optimizing the area under the curve created by graphing false positive rate vs. true positive rate.
 
-After training the models on training data, optimum probability cut-off 
-values will be explored using model predictions. The best probability cut-off 
-will be determined based on the assumption that the cost of a false negative,
-predict non-serious injury when in-fact was a serious injury, is higher
-than a false positive, predict serious injury when in-fact was
-non-serious injury. The high cost for a false negative is higher because
-lives could potentially be lost or a life-changing injury, while the
-false positive only results in potentially spending more money on road
-safety for bicyclists which pays off in the long run anyways. Therefore,
-probability cut-offs will be chosen to optimize sensitivity (true
-positive rate) along with accuracy, with specificity (false negative
-rate) being the last priority. With this in mind, let's assume that we
-want to have as close to 75% for sensitivity. Specificity can be relaxed as 
-low as 50%. The models that don't meet these criteria will not be included in an 
-ensemble model.
+After training the models on training data, optimum probability cut-off values will be explored using model predictions. The best probability cut-off will be determined based on the assumption that the cost of a false negative, predict non-serious injury when in-fact was a serious injury, is higher than a false positive, predict serious injury when in-fact was non-serious injury. The high cost for a false negative is higher because lives could potentially be lost or a life-changing injury, while the false positive only results in potentially spending more money on road safety for bicyclists which pays off in the long run anyways. Therefore, probability cut-offs will be chosen to optimize sensitivity (true positive rate) along with accuracy, with specificity (false negative rate) being the last priority. With this in mind, let's assume that we want to have as close to 75% for sensitivity. Specificity can be relaxed as low as 50%. The models that don't meet these criteria will not be included in an ensemble model.
 
 # Data Exploration
 
@@ -161,37 +118,25 @@ data cleaning is done in this section using tidyverse methods.
 
 ### Data Issues
 
-There are many issues with the data set not being tidy and clean. Some variables will need to be converted to
-a numerical datatype for the machine learning models to work properly. Categorical character columns will
-need to be converted to factors. Dummy variables will be created for every column that is not numerical. This
-will likely increase the number of features in the dataset to the scale of hundreds of features. Feature reduction
-will be carried out to reduce memory usage and computation time of fitting models. Feature reduction will
-be carried out by removing features that have little to no variability and will thus not contribute much
-information to the models being used. Additionally, features that have high correlation with other features
-will be removed to improve model performance.
+There are many issues with the data set not being tidy and clean. Some variables will need to be converted to a numerical datatype for the machine learning models to work properly. Categorical character columns will need to be converted to factors. Dummy variables will be created for every column that is not numerical. This will likely increase the number of features in the dataset to the scale of hundreds of features. Feature reduction will be carried out to reduce memory usage and computation time of fitting models. Feature reduction will be carried out by removing features that have little to no variability and will thus not contribute much information to the models being used. Additionally, features that have high correlation with other features will be removed to improve model performance.
 
-Some observations in the dataset that are missing data and these values have been imputed manually. For
-numerical missing data such as age missing values were imputed based on medians of age groups if age
-group variable is available, otherwise age was imputed using the median age of the full dataset based on
-the variable in question. For categorical variables, after being converted to dummy variables (i.e. 0 or 1 in
-value), missing values were imputed with a 0 to help in achieving a complete dataset as possible.
+Some observations in the dataset that are missing data and these values have been imputed manually. For numerical missing data such as age missing values were imputed based on medians of age groups if age group variable is available, otherwise age was imputed using the median age of the full dataset based on the variable in question. For categorical variables, after being converted to dummy variables (i.e. 0 or 1 in value), missing values were imputed with a 0 to help in achieving a complete dataset as possible.
 
 #### Unneccessary variables
 
 The following variables are obviously copies of other variables.
 
-*   X and Y are longitude and latitude which are already present in the data
-*   OBJECTID and OBJECTID_1 seem like a row number id which is not a very useful 
-feature.  Also these are duplicated columns.
+-   X and Y are longitude and latitude which are already present in the data
+-   OBJECTID and OBJECTID_1 seem like a row number id which is not a very useful feature. Also these are duplicated columns.
 
-```{r clean_data, echo=TRUE, message=FALSE, warning=FALSE}
+```{r clean_data, echo=FALSE, message=FALSE, warning=FALSE}
 bike_crashes <- bike_crashes %>%
   select(-X, -Y, -matches('OBJECT'))
 ```
 
 *Deaths and bicyclst killed descrepency*
 
-```{r}
+```{r echo=FALSE, message=FALSE, warning=FALSE }
 bike_crashes %>%
   summarize(
     total_deaths = sum(str_detect(CrashSevr, 'K:')),
@@ -204,36 +149,22 @@ bike_crashes %>%
   kable(caption = 'Death count discrepency of dataset')
 ```
 
-278 total deaths, 7 deaths that aren't clear since there is no indication if
-bicyclist or driver was killed.  271 deaths that were biking or driving, mostly 
-bicyclist (269) deaths. There are only 2 driver deaths in the whole dataset.
+278 total deaths, 7 deaths that aren't clear since there is no indication if bicyclist or driver was killed. 271 deaths that were biking or driving, mostly bicyclist (269) deaths. There are only 2 driver deaths in the whole dataset.
 
-These are the 7 deaths that can't be explained by bicyclist(s) and
-driver(s). There seems to be a third party involved that is not listed in
-records, i.e. other pedestrian or other cyclist that didn't cause the crash
-but was affected by the crash.
+These are the 7 deaths that can't be explained by bicyclist(s) and driver(s). There seems to be a third party involved that is not listed in records, i.e. other pedestrian or other cyclist that didn't cause the crash but was affected by the crash.
 
-Since we are most concerned with serious bicycle injuries, these records will be
-leaved as is since no serious injury to the bicyclist was recorded.  However, it
-the CrashSevr and DrvrInjury variables will be removed since we already have 
-BikeInjury variable.
+Since we are most concerned with serious bicycle injuries, these records will be leaved as is since no serious injury to the bicyclist was recorded. However, it the CrashSevr and DrvrInjury variables will be removed since we already have BikeInjury variable.
 
-```{r}
+```{r echo=FALSE, message=FALSE, warning=FALSE }
 bike_crashes <- bike_crashes %>%
   select(-DrvrInjury, -CrashSevr)
 ```
 
 *Duplicates*
 
-Note duplicate crash report for CrashID == 1041566349; note that only
-CrashLoc and CrashType are different. Based on the first record, the driver is
-taking a right turn, but listed as non-intersection; in second record,
-CrashType is "motorist overtaking - Other/Unknown" and Crash Location is
-listed as intersection. Therefore, the CrashLoc was likely an intersection
-where a motorist overtook a bicyclist.  This crash record will need to be
-fixed to reflect this and remove duplication.
+Note duplicate crash report for CrashID == 1041566349; note that only CrashLoc and CrashType are different. Based on the first record, the driver is taking a right turn, but listed as non-intersection; in second record, CrashType is "motorist overtaking - Other/Unknown" and Crash Location is listed as intersection. Therefore, the CrashLoc was likely an intersection where a motorist overtook a bicyclist. This crash record will need to be fixed to reflect this and remove duplication.
 
-```{r}
+```{r echo=FALSE, message=FALSE, warning=FALSE }
 bike_crashes[duplicated(bike_crashes$CrashID), 'CrashID'] %>% 
   kable(caption = 'Duplicate Record CrashID')
 bike_crashes %>%
@@ -241,7 +172,7 @@ bike_crashes %>%
   glimpse()
 ```
 
-```{r}
+```{r echo=FALSE, message=FALSE, warning=FALSE }
 # Fix duplicate record
 bike_crashes <- 
   bike_crashes %>%
@@ -260,16 +191,9 @@ bike_crashes <-
 
 ### General data preparation
 
-Some observations in the dataset that are missing data and these values
-have been imputed manually. For numerical missing data such as age
-missing values were imputed based on medians of age groups if age group
-variable is available, otherwise age was imputed using the median age of
-the full dataset based on the variable in question. For categorical
-variables, after being converted to dummy variables (i.e. 0 or 1 in
-value), missing values were imputed with a 0 to help in achieving a
-complete dataset as possible.
+Some observations in the dataset that are missing data and these values have been imputed manually. For numerical missing data such as age missing values were imputed based on medians of age groups if age group variable is available, otherwise age was imputed using the median age of the full dataset based on the variable in question. For categorical variables, after being converted to dummy variables (i.e. 0 or 1 in value), missing values were imputed with a 0 to help in achieving a complete dataset as possible.
 
-```{r}
+```{r echo=FALSE, message=FALSE, warning=FALSE }
 #################
 # Data Cleaning #
 #################
@@ -413,12 +337,9 @@ bike_crashes_clean <-
 
 ### Missing data
 
-The amount of data missing throughout the dataset are noticeable and should imputed
-if possible.  NumBics columns have the most missing data with 54.9%  missing.
-It's unlikely that NumBics will be able to be imputed since majority values are
-missing.
+The amount of data missing throughout the dataset are noticeable and should imputed if possible. NumBics columns have the most missing data with 54.9% missing. It's unlikely that NumBics will be able to be imputed since majority values are missing.
 
-```{r}
+```{r echo=FALSE, message=FALSE, warning=FALSE }
 # percent of missing data in each column
 bike_crashes_clean %>%
   map(~ round(sum(is.na(.x)) / nrow(bike_crashes_clean) * 100, 1)) %>%
@@ -429,9 +350,11 @@ bike_crashes_clean %>%
   kable(caption = 'Variables with missing values')
 ```
 
-### Median imputation of biker age and driver age
+### Imputations
 
-```{r}
+Missing age data is imputed based on median age of available age groups. If no age groups is available, The median age of the full dataset is used. If an NA was encountered on a binary (Yes/No) variable then "No" was assumed in order to make as many observations complete as possible to ensure complete cases.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE }
 ######################
 # Median Imputations #
 ######################
@@ -472,12 +395,9 @@ bike_crashes_clean <- bike_crashes_clean %>%
 
 #### Response Variable: Serious Bike Injury
 
-Let's take a look at a geographical map of the serious crashes in the
-data set.  The geographical data is sourced from R's maps package.  As it can 
-be seen from the map below, a majority of the crashes seem to be occurring in
-counties where large cities are located.
+Let's take a look at a geographical map of the serious crashes in the data set. The geographical data is sourced from R's maps package. As it can be seen from the map below, a majority of the crashes seem to be occurring in counties where large cities are located.
 
-```{r explore_bike_crashes, echo=TRUE, message=FALSE, warning=FALSE}
+```{r explore_bike_crashes, echo=FALSE, message=FALSE, warning=FALSE}
 
 county_bike_crashes <- bike_crashes_clean %>%
   filter(BikeInjurySerious == 1) %>%
@@ -539,11 +459,9 @@ ggplot(mapping = aes(lon, lat)) +
   )
 ```
 
-The table below confirms that around 50% of the bike accidents with serious
-injury occur in urban areas (>70% developed), followed by 32.5% of serious
-injuries being in rural areas (<30% developed).
+The table below confirms that around 50% of the bike accidents with serious injury occur in urban areas (\>70% developed), followed by 32.5% of serious injuries being in rural areas (\<30% developed). There does not seem to be a linear relationship between development-level and severity of injuries. Instead, we see more serious injuries in highly developed areas and more rural areas and not as much in between.
 
-```{r}
+```{r echo=FALSE, message=FALSE, warning=FALSE }
 bike_crashes_clean %>% 
   count(Locality, BikeInjurySerious) %>%
   mutate(
@@ -553,51 +471,125 @@ bike_crashes_clean %>%
   kable(caption = 'Bike injury by locality', digits = 2)
 ```
 
-### Explore categorical variables
+#### Explore numerical variables
 
-```{r}
-bike_crashes %>% 
-  mutate(across(where(is.character), factor)) %>%
-  select(where(~length(levels(.x)) <= 12)) %>%
-  select(-matches('Age'), -matches('Alc'), -matches('Injury')) %>%
-  map(summary) %>%
-  map(names) %>%
-  map(~ .x[.x != '.'])
-bike_crashes %>% 
-  mutate(across(where(is.character), factor)) %>%
-  select(where(~length(levels(.x)) > 12)) %>%
-  select(-matches('Age'), -matches('Alc'), -matches('Injury')) %>%
-  map(summary) %>%
-  map(names) %>%
-  map(~ .x[.x != '.'])
+NumUnits has very little variability and will likely be removed due to near-zero variance.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE }
+numerical_features <- c('BikeAge', 'CrashHour', 'CrashYear', 
+                        'DrvrAge', 'Latitude', 'Longitude', 'NumUnits')
+
+bike_crashes_clean %>%
+  select(numerical_features) %>%
+  map_df(as.numeric) %>%
+  imap(
+    ~ggplot(
+          aes(
+            x = !!.y,
+            y = .x
+          ),
+          data = tibble(.y := .x),
+        ) + 
+        geom_boxplot(
+        ) +
+        ggtitle(.y) +
+        xlab(.y) + 
+        ylab('var. values')
+  )
+
 ```
 
+#### Explore categorical variables
 
-### Explore numerical variables
+Bar plots and top-20 summaries have been produced below for all categorical features that will be attempted to be included in the modeling process.
 
-```{r}
+A number of categorical features have unbalanced levels. Once factors are coverted to dummy variables, near-zero variance feature will be removed, thus helping by removing facors/levels that don't provide enough variability to inform the model. A percent unique values cutoff of 5% will be used to determine which feature levels are removed.
+
+Notice that some features have too many levels to be viewed in a bar graph.\
+Therefore, those features' levels are displayed in a table of the top 20 levels by feature.
+
+The following features CrashID, BikeInjuryCat will not be summarized as these features will not be used in the modeling process. All features of the form "NumBics"X will not be since these features are missing more than 50% of values.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+categorical_features <- names(bike_crashes_clean)
+no_need_4_plot <- c(
+  'BikeInjurySerious',
+  'CrashID',
+  'BikeInjuryCat',
+  'NumBicsAin',
+  'NumBicsBin',
+  'NumBicsCin',
+  'NumBicsKil',
+  'NumBicsNoi',
+  'NumBicsTot'
+)
+for_tables <- c(
+  'City',
+  'County',
+  'CrashGrp',
+  'CrashType',
+  'DrvrVehTyp',
+  'RdFeature',
+  'TraffCntrl'
+)
+
+categorical_features <- categorical_features[
+  !categorical_features %in% c(
+    numerical_features,
+    no_need_4_plot,
+    for_tables
+  )
+]
+
+bike_crashes_clean %>%
+  select(categorical_features) %>%
+  imap(
+    ~ggplot(
+          aes(
+            x = .x
+          ),
+          data = tibble(.y := .x),
+        ) + 
+        geom_bar(aes(y = (..count..)/sum(..count..))) +
+        ggtitle(str_c(.y, ': factor level counts')) +
+        xlab(.y) +
+        ylab('Relative frequency') +
+        theme(axis.text.x = element_text(angle = 15, hjust = 1, size = 7))
+  )
+
+bike_crashes_clean %>%
+  select(for_tables) %>%
+  map(summary) %>%
+  map(
+    ~as.data.frame(.x) %>%
+      rownames_to_column('level') %>%
+      arrange(desc(`.x`))
+  ) %>%
+  map(slice, 1:20) %>%
+  imap(
+    ~.x %>%
+      transmute(
+      !!.y := level,
+      n = `.x`,
+      pct = n / sum(n) * 100
+    )
+  ) %>% 
+  imap(
+    ~kable(.x, caption = str_c('Top 20 levels for ', .y), digits = 2)
+  )
 ```
 
 # Pre-Processing and Model Setup
 
-Some variables will need to be converted to a numerical datatype for the
-machine learning models to work properly. Categorical character columns
-will need to be converted to factors. Dummy variables will be created
-for every column that is not numerical. This will likely increase the
-number of features in the dataset to the scale of hundreds of features.
+Some variables will need to be converted to a numerical datatype for the machine learning models to work properly. Categorical character columns will need to be converted to factors. Dummy variables will be created for every column that is not numerical. This will likely increase the number of features in the dataset to the scale of hundreds of features.
 
-Feature reduction will be carried out to reduce memory usage and computation 
-time of fitting models. Feature reduction will be carried out by removing 
-features are highly correlated or that have little to no variability and will 
-thus not contribute much information to the models being used.  
+Feature reduction will be carried out to reduce memory usage and computation time of fitting models. Feature reduction will be carried out by removing features are highly correlated or that have little to no variability and will thus not contribute much information to the models being used.
 
 ## Create Dummy Variables
 
-convert categorical variables to dummy variables. Some name fixes will be 
-required to make column names more consistent.If any binary features have NA's
-then replace with 0's to preserve largest complete dataset possible.
+convert categorical variables to dummy variables. Some name fixes will be required to make column names more consistent.If any binary features have NA's then replace with 0's to preserve largest complete dataset possible.
 
-```{r create_dummies}
+```{r create_dummies, echo=FALSE, message=FALSE, warning=FALSE}
 bike_crash_dummies_mdl <- dummyVars(
   # keep BikeInjurySerious in the matrix since already numeric
   ~ ., 
@@ -637,11 +629,9 @@ bike_crash_dummies <- bike_crash_dummies %>%
 
 ## Correlated Variables
 
-In this section, correlated features will be removed based on complete cases.
-Any variables with zero variance after filtering for complete cases will be
-removed because they won't offer any information to a model.
+In this section, correlated features will be removed based on complete cases. Any variables with zero variance after filtering for complete cases will be removed because they won't offer any information to a model.
 
-```{r corr_vars}
+```{r corr_vars, echo=FALSE, message=FALSE, warning=FALSE}
 # if we look at correlation we'll have to use complete cases
 # let's see what variables have the most missing data
 # since approximately 13-14% are missing. With certain models complete.obs 
@@ -683,15 +673,14 @@ bike_crash_dummies <- bike_crash_dummies %>%
 
 ## Variables that are directly related to response
 
-The following variables are directly related to the response and if used in a 
-model, the results would be overly optimistic.
+The following variables are directly related to the response and if used in a model, the results would be overly optimistic.
 
-*   Ambulance - if ambulance used then it would already known to be serious.
-*   BikeInjuryDisc - directly related to response
-*   BikeInjuryCat - directly related to response
-*   NumBicsX - all variables are related to the BikeInjuryCat
+-   Ambulance - if ambulance used then it would already known to be serious.
+-   BikeInjuryDisc - directly related to response
+-   BikeInjuryCat - directly related to response
+-   NumBicsX - all variables are related to the BikeInjuryCat + 50% missing values
 
-```{r}
+```{r echo=FALSE, message=FALSE, warning=FALSE}
 bike_crash_dummies <- bike_crash_dummies %>%
   select(
     -matches('AmbulanceR'),
@@ -705,7 +694,7 @@ bike_crash_dummies <- bike_crash_dummies %>%
 
 At this point dataset have been cleaned as much as possible. Save datasets.
 
-```{r save_derived_data}
+```{r save_derived_data, echo=FALSE, message=FALSE, warning=FALSE}
 saveRDS(bike_crashes_clean, './derived_data/bike_crashes_clean.rds')
 saveRDS(bike_crash_dummies, './derived_data/bike_crash_dummies.rds')
 # remove everything from the environment to releive memory
@@ -716,13 +705,13 @@ rm(list = ls())
 
 ## Create train and test dataset partitions
 
-training dataset accounts for 80% of the full dataset, while testing dataset 
-will account for 20%.
+The training dataset accounts for 80% of the full dataset, while testing dataset will account for 20%. All models will be fit using the training data, optimum probability cut-off values will be explored from the training set and applied to the predicted probabilities from the test dataset.
 
-```{r}
-loadRDS('./derived_data/bike_crash_dummies.rds')
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+bike_crash_dummies <- readRDS('./derived_data/bike_crash_dummies.rds')
+
+# Create partitions - use same seed
 set.seed(24)
-
 train_index <- createDataPartition(
   bike_crash_dummies$BikeInjurySerious, 
   p = .8, 
@@ -744,11 +733,9 @@ test_dat %>%
 
 ## Remove near-zero variance features
 
-Remove variables that have near-zero variance since they will likely not
-contribute much information to the classification models. Any variable that
-has less than 5% distinct values out of total number of samples will be removed. 
+Remove variables that have near-zero variance since they will likely not contribute much information to the classification models. Any variable that has less than 5% distinct values out of total number of samples will be removed.
 
-```{r near_zero_variance}
+```{r near_zero_variance, echo=FALSE, message=FALSE, warning=FALSE}
 preproc_mdl <- preProcess(
   train_dat %>%
     select(-BikeInjurySerious) %>% 
@@ -792,54 +779,25 @@ test_dat <-
 
 # Modeling
 
-Multiple models will be evaluated for performance based on ROC metric
-and by computation time. The best models will be used in an ensemble
-model. Models will be chosen for the ensemble based on computation time,
-ROC, complimentary results, i.e., one model may have higher sensitivity
-while another may have higher specificity, and an ensemble could balance
-these models.
+Multiple models will be evaluated for performance based on ROC metric and by computation time. The best models will be used in an ensemble model. Models will be chosen for the ensemble based on computation time, ROC, complimentary results, i.e., one model may have higher sensitivity while another may have higher specificity, and an ensemble could balance these models.
 
-The model predictors are selected based on caret's underlying training
-methodology. All final model's hyper-parameters and predictors will be
-chosen based on the optimum area under the ROC (i.e. AUC). AUC is a
-performance metric that will balance sensitivity (true positive rate)
-and specificity (true negative rate). AUC values range from 0 to 1 and a
-value of 1 considered a perfect classification model. hyper-parameter
-grid search is set to default which chooses hyper-parameters randomly.
+The model predictors are selected based on caret's underlying training methodology. All final model's hyper-parameters and predictors will be chosen based on the optimum area under the ROC (i.e. AUC). AUC is a performance metric that will balance sensitivity (true positive rate) and specificity (true negative rate). AUC values range from 0 to 1 and a value of 1 considered a perfect classification model. hyper-parameter grid search is set to default which chooses hyper-parameters randomly.
 
-Repeated k-fold cross-validation will carried out on all models below.
-In some cases, the computation method is quite complex and is very slow
-to compute (e.g. random forests). In these cases, repeated
-cross-validation will be reduced to non-repeated cross-validation and/or
-the k in k-fold will be reduced.
+Repeated k-fold cross-validation will carried out on all models below. In some cases, the computation method is quite complex and is very slow to compute (e.g. random forests). In these cases, repeated cross-validation will be reduced to non-repeated cross-validation and/or the k in k-fold will be reduced.
 
-Since the prevalence of serious injury is so low (around 5%),
-up-sampling has been used to increase representation when k-fold cross
-validation occurs.
+Since the prevalence of serious injury is so low (around 5%), up-sampling has been used to increase representation when k-fold cross validation occurs.
 
 All models will be run on the training dataset.
 
 ## Linear Classifiers
 
-Linear classifier models parameterize the probability of a response,
-serious injury in our case, based on a linear combination data features.
-These models are nice since we can intuitively see the importance of
-each feature in the final model with respect to how they influence the
-probability of a serious injury. In this section, a general linear model
-w/ a binary link function (aka logistic classification model) will be
-used which takes numerical features as inputs and will be used to
-predict probability of having a serious injury. Principal components
-analysis (PCA) will be attempted to see if the feature space can be
-further reduced and model improved.
+Linear classifier models parameterize the probability of a response, serious injury in our case, based on a linear combination data features. These models are nice since we can intuitively see the importance of each feature in the final model with respect to how they influence the probability of a serious injury. In this section, a general linear model w/ a binary link function (aka logistic classification model) will be used which takes numerical features as inputs and will be used to predict probability of having a serious injury. Principal components analysis (PCA) will be attempted to see if the feature space can be further reduced and model improved.
 
-glmnet package is used for logistic regression with elastic-net penalty
-built-in. PCA is carried out on second logistic model to see if there is
-any improvement. Multiple hyper-parameters, alpha (mixing parameter: 0 =
-ridge, 1 = lasso) and lambda (penalty size), will be explored by caret.
+glmnet package is used for logistic regression with elastic-net penalty built-in. PCA is carried out on second logistic model to see if there is any improvement. Multiple hyper-parameters, alpha (mixing parameter: 0 = ridge, 1 = lasso) and lambda (penalty size), will be explored by caret.
 
 ### Logistic (elastic-net) Model
 
-```{r logistic_model}
+```{r logistic_model, echo=FALSE, message=FALSE, warning=FALSE}
 set.seed(42)
 # seeds to be used reproducable resampling
 seeds <- vector(mode = "list", length = 31)
@@ -894,7 +852,7 @@ print(log_time)
 
 ### Logistic Model (elastic-net) with PCA
 
-```{r logistic_PCA_model}
+```{r logistic_PCA_model, echo=FALSE, message=FALSE, warning=FALSE}
 set.seed(42)
 
 #################################################################
@@ -927,18 +885,11 @@ print(log_PCA_time)
 
 ## Non-linear Classification Models
 
-In some cases, linear classifiers do not perform well when the response
-classes (i.e. serious, non-serious) do not have a linear relationship
-with the features. Put another way, linear classifiers can not produce a
-straight line in the feature space that separates the response classes.
-Below, naive Bayes classifier, neural network and random forest models
-are used. It would not be a good use of space to go into details of each
-of these models. R has plenty of documentation on each model if one is
-curious.
+In some cases, linear classifiers do not perform well when the response classes (i.e. serious, non-serious) do not have a linear relationship with the features. Put another way, linear classifiers can not produce a straight line in the feature space that separates the response classes. Below, naive Bayes classifier, neural network and random forest models are used. It would not be a good use of space to go into details of each of these models. R has plenty of documentation on each model if one is curious.
 
 ### Naive Bayes Model
 
-```{r naive_bayes}
+```{r naive_bayes, echo=FALSE, message=FALSE, warning=FALSE}
 set.seed(42)
 
 ###############
@@ -969,7 +920,7 @@ print(nb_time)
 
 ### K-nearest Neighbors Model
 
-```{r knn}
+```{r knn, echo=FALSE, message=FALSE, warning=FALSE}
 set.seed(42)
 
 ##################
@@ -998,7 +949,7 @@ print(knn_time)
 
 ### Random Forests Model
 
-```{r random_forests}
+```{r random_forests, echo=FALSE, message=FALSE, warning=FALSE}
 set.seed(42)
 
 # random forests is the most computation intensive with repeatedcv
@@ -1052,18 +1003,11 @@ print(rf_time)
 
 # Prediction Performance
 
-In this section, each model will be evaluated on its' performance in
-accuracy, sensitivity and specificity based on the optimum probability
-cutoff used to classify each observation as a serious or non-serious
-injury. You will see plots below that show that a model with high
-accuracy is not necessarily the best at classifying observations. In
-fact, a model that predicts non-serious 100% of the time has a model
-accuracy of 95% since the prevalence of serious injury is 5% in the
-dataset.
+In this section, each model will be evaluated on its' performance in accuracy, sensitivity and specificity based on the optimum probability cutoff used to classify each observation as a serious or non-serious injury. You will see plots below that show that a model with high accuracy is not necessarily the best at classifying observations. In fact, a model that predicts non-serious 100% of the time has a model accuracy of 95% since the prevalence of serious injury is 5% in the dataset.
 
 All final predictions will be based on test dataset.
 
-```{r pred_perf_fn, message=FALSE, warning=FALSE, include=FALSE}
+```{r pred_perf_fn, echo=FALSE, message=FALSE, warning=FALSE}
 # performance function
 mdl_train_performance <- function(mdl, conf_matrix = FALSE, ensemble = FALSE, mdl_lst = NULL) {
   set.seed(42)
@@ -1208,14 +1152,11 @@ mdl_test_performance <- function(mdl, prob_cutoff = NULL, ensemble = FALSE, mdl_
 
 ## Linear Predictions
 
-Both standard logistic model and PCA logistic model have similar
-outcomes. Logistic model without PCA was faster at achieving a similar
-result. Therefore PCA was not useful in this case and will not be used
-elsewhere.
+Both standard logistic model and PCA logistic model have similar outcomes. Logistic model without PCA was faster at achieving a similar result. Therefore PCA was not useful in this case and will not be used elsewhere.
 
 ### Logistic (elastic net) Predictions
 
-```{r linear_preds}
+```{r linear_preds, echo = FALSE, message=FALSE, warning=FALSE}
 # Logistic Classification
 log_train_perf <- mdl_train_performance(log_mdl, conf_matrix = TRUE)
 # customize output
@@ -1235,7 +1176,7 @@ log_mdl_perf %>%
 
 PCA does not seem to improve the logistic model enough to be useful.
 
-```{r}
+```{r echo = FALSE, message=FALSE, warning=FALSE}
 # Logistic Classification with PCA
 log_PCA_train_perf <- mdl_train_performance(log_PCA_mdl, conf_matrix = TRUE)
 # customize output
@@ -1253,23 +1194,13 @@ log_PCA_perf %>%
 
 ## Non-linear Predictions Predictions
 
-Naive bayes classifier is the fastest and has a very similar result the
-GLM models above. Both neural network and random forest take
-considerably longer to compute and don't perform much better than naive
-bayes. Therefore, only the naive bayes model made it into ensemble
-model.
+Naive bayes classifier is the fastest and has a very similar result the GLM models above. Both neural network and random forest take considerably longer to compute and don't perform much better than naive bayes. Therefore, only the naive bayes model made it into ensemble model.
 
-Notice that for random forest model, since we dropped the repeated part
-of the cross-validation and dropped the k in k-fold to 5 from 10, the
-model is over-fitting a bit more than the other models. The high
-accuracy values in the random forest performance plot and the low
-accuracy with the test dataset confirm this. Since the random forest
-algorithm is slow compared to these other non-linear models it was not
-be used in ensemble model.
+Notice that for random forest model, since we dropped the repeated part of the cross-validation and dropped the k in k-fold to 5 from 10, the model is over-fitting a bit more than the other models. The high accuracy values in the random forest performance plot and the low accuracy with the test dataset confirm this. Since the random forest algorithm is slow compared to these other non-linear models it was not be used in ensemble model.
 
 ### Naive Bayes Predictions
 
-```{r naive_bayes_pred}
+```{r naive_bayes_pred, echo = FALSE, message=FALSE, warning=FALSE}
 # Naive Bayes
 nb_train_perf <- mdl_train_performance(nb_mdl, conf_matrix = TRUE)
 # customize output
@@ -1288,10 +1219,9 @@ nb_mdl_perf %>%
 
 ### K-nearest Neighbors Predictions
 
-Predictions for K-nearest neighbor take a lot longer to compute than
-other models.
+Predictions for K-nearest neighbor take a lot longer to compute than other models.
 
-```{r knn_pred}
+```{r knn_pred, echo = FALSE, message=FALSE, warning=FALSE}
 # K-nearest Neighbors
 knn_train_perf <- mdl_train_performance(knn_mdl, conf_matrix = TRUE)
 knn_train_perf$train_conf_matrix
@@ -1310,7 +1240,7 @@ knn_mdl_perf %>%
 
 ### Random Forest Predictions
 
-```{r rf_pred}
+```{r rf_pred, echo = FALSE, message=FALSE, warning=FALSE}
 # Random Forest
 rf_train_perf <- mdl_train_performance(rf_mdl, conf_matrix = TRUE)
 rf_train_perf$train_conf_matrix
@@ -1326,43 +1256,17 @@ rf_mdl_perf %>%
 
 # Model Performance on Test Data
 
-The goal of this section to select the models that will go on to
-ensemble model.
+The goal of this section to select the models that will go on to ensemble model.
 
-Logistic model, naive Bayes and random forests all perform similarly.
-However, both logistic models, with/without PCA included in the
-analysis, perform better than the others as far as optimizing
-sensitivity while balancing accuracy and specificity. Of the two
-logistic models, the one that includes the PCA with the model performs
-slightly better. Since the time difference for each logistic model is
-comparable, the PCA logistic model would seem like the most useful
-model. However, PCA model results are difficult to understand because
-they are linear combinations of other features. Therefore, the non-PCA
-version of the model will be used in the ensemble model since the
-performance isn't that different and is slightly faster. Also worth of
-note, if PCA is used in one model and not in others, the ensemble model
-is harder to interpret since it has mixed PCA features and raw feature
-names listed in caret::varImp.
+Logistic model, naive Bayes and random forests all perform similarly. However, both logistic models, with/without PCA included in the analysis, perform better than the others as far as optimizing sensitivity while balancing accuracy and specificity. Of the two logistic models, the one that includes the PCA with the model performs slightly better. Since the time difference for each logistic model is comparable, the PCA logistic model would seem like the most useful model. However, PCA model results are difficult to understand because they are linear combinations of other features. Therefore, the non-PCA version of the model will be used in the ensemble model since the performance isn't that different and is slightly faster. Also worth of note, if PCA is used in one model and not in others, the ensemble model is harder to interpret since it has mixed PCA features and raw feature names listed in caret::varImp.
 
-The naive Bayes model computes the fastest with the lower accuracy due
-to having a low specificity. Considering how fast the computation is and
-not having a huge drop in accuracy, this is still a reasonable model.
-Naive Bayes will be included in the ensemble model since it could be
-picking up on different features than the linear or other nonlinear
-models.
+The naive Bayes model computes the fastest with the lower accuracy due to having a low specificity. Considering how fast the computation is and not having a huge drop in accuracy, this is still a reasonable model. Naive Bayes will be included in the ensemble model since it could be picking up on different features than the linear or other nonlinear models.
 
-K-nearest neighbors was the worst performer in accuracy due to the
-lowest specificity and therefore, will not move on to the ensemble
-model.
+K-nearest neighbors was the worst performer in accuracy due to the lowest specificity and therefore, will not move on to the ensemble model.
 
-Random forest model did not perform as well as expected give how well it
-performed on the training data. This seems to indicate that the model is
-over fit which is the opposite of what we'd expect from an ensemble
-decision tree count of 100 and 10-fold cross validation. It's possible
-that the random forest model is picking up on something that the other
-models aren't and will be included in the final ensemble model.
+Random forest model did not perform as well as expected give how well it performed on the training data. This seems to indicate that the model is over fit which is the opposite of what we'd expect from an ensemble decision tree count of 100 and 10-fold cross validation. It's possible that the random forest model is picking up on something that the other models aren't and will be included in the final ensemble model.
 
-```{r model_summaries}
+```{r model_summaries, echo = FALSE, message=FALSE, warning=FALSE}
 list(
   log_mdl_perf,
   log_PCA_perf,
@@ -1399,13 +1303,9 @@ list(
 
 ## Ensemble Classifier
 
-Logistic, naive Bayes random forests will be used in an ensemble
-learning model. Note that random forests took the longest to run before
-and is the bottleneck of the ensemble model. However, since we've
-already found the tuning of the models, grid search part of the fitting
-is not needed and will speed up the computation time.
+Logistic, naive Bayes random forests will be used in an ensemble learning model. Note that random forests took the longest to run before and is the bottleneck of the ensemble model. However, since we've already found the tuning of the models, grid search part of the fitting is not needed and will speed up the computation time.
 
-```{r ensemble_classifier}
+```{r ensemble_classifier, echo = FALSE, message=FALSE, warning=FALSE}
 set.seed(42)
 # seeds to be used reproducable resampling
 # since we have the hyper-parameters locked in,
@@ -1495,7 +1395,7 @@ ensemble_mdl
 
 ## Ensemble Predictions
 
-```{r ensemble_preds}
+```{r ensemble_preds, echo = FALSE, message=FALSE, warning=FALSE}
 ensemble_train_perf <- mdl_train_performance(
   ensemble_mdl, 
   conf_matrix = TRUE, 
@@ -1526,13 +1426,9 @@ ensemble_mdl_perf %>%
 
 # Conclusions
 
-All model performance metrics are listed below with the ensemble model
-having the best performance. The ensemble model includes an elasticnet
-logistic model, naive Bayes model and a random forests model. The
-variable importance for all models including the overall ensemble model
-importance weight per predictor is provided.
+All model performance metrics are listed below with the ensemble model having the best performance. The ensemble model includes an elasticnet logistic model, naive Bayes model and a random forests model. The variable importance for all models including the overall ensemble model importance weight per predictor is provided.
 
-```{r ensemble_vs_other_mdls}
+```{r ensemble_vs_other_mdls, echo = FALSE, message=FALSE, warning=FALSE}
 list(
   log_mdl_perf,
   log_PCA_perf,
@@ -1568,10 +1464,9 @@ list(
   kable(caption = 'Model Performances Comparison (w/ Ensemble)')
 ```
 
-With the ensemble model being selected as the best model, the top 20
-most important variables are as follows:
+With the ensemble model being selected as the best model, the top 20 most important variables are as follows:
 
-```{r}
+```{r, echo = FALSE, message=FALSE, warning=FALSE}
 ensemble_train_perf$variable_importance %>%
   arrange(desc(overall)) %>%
   slice(1:20) %>%
@@ -1583,46 +1478,12 @@ ensemble_train_perf$variable_importance %>%
 
 ## Possible Interpretations of Predictors and Suggestions
 
-The first 5 predictors by overall importance make sense as far as being
-predictive of serious bike crashes in that high speed limits (50 - 55
-mph), bicyclist under the influence of alcohol, bicyclist failing to
-yield mid-block and bike position crosswalk/crossing/driveway all point
-to the bicyclist not be a responsible commuter.
+The first 5 predictors by overall importance make sense as far as being predictive of serious bike crashes in that high speed limits (50 - 55 mph), bicyclist under the influence of alcohol, bicyclist failing to yield mid-block and bike position crosswalk/crossing/driveway all point to the bicyclist not be a responsible commuter.
 
-Notice, I did not mention daylight conditions being the second highest
-predictor of serious bike accidents. This is because it is not really
-clear why this is such a good predictor. It could be due to low
-visibility or warning of a bicyclist and their intentions. If a
-bicyclist is biking at night, they would most likely have bike lights on
-which helps drivers to see that an unprotected traveler is in the road
-and gives their direction since the bike light points forward and tail
-light points backwards. In addition, during the day, there is more
-traffic on the street and the sidewalk which could distract drivers.
+Notice, I did not mention daylight conditions being the second highest predictor of serious bike accidents. This is because it is not really clear why this is such a good predictor. It could be due to low visibility or warning of a bicyclist and their intentions. If a bicyclist is biking at night, they would most likely have bike lights on which helps drivers to see that an unprotected traveler is in the road and gives their direction since the bike light points forward and tail light points backwards. In addition, during the day, there is more traffic on the street and the sidewalk which could distract drivers.
 
-It may seem surprising that straight roads is a good predictor serious
-bike crashes, but if you think about when you drive on a straight road
-for a while and you get into "the zone" where you don't remember the
-last 5-10 minutes of driving because you were on autopilot. This could
-be the case especially if the speeds are 40 - 55 mph where it would very
-difficult to avoid an obstacle in the road.
+It may seem surprising that straight roads is a good predictor serious bike crashes, but if you think about when you drive on a straight road for a while and you get into "the zone" where you don't remember the last 5-10 minutes of driving because you were on autopilot. This could be the case especially if the speeds are 40 - 55 mph where it would very difficult to avoid an obstacle in the road.
 
-I don't think we have enough data to explain why a driver's race is a
-predictor of seriousness of a bike-vehicle crash. We would need to know
-more about the state of North Carolina and how roads in predominantly
-black neighborhoods differ in bike friendliness and traffic from roads
-in predominantly white neighborhoods. We may find that there is an
-uneven distribution of bike friendly roads in either neighborhood which
-could affect a driver's experience how to share the road with a
-bicyclist. No conclusions can be made with the data we have here. These
-are just possible things we could look into with more socioecenomic
-data.
+I don't think we have enough data to explain why a driver's race is a predictor of seriousness of a bike-vehicle crash. We would need to know more about the state of North Carolina and how roads in predominantly black neighborhoods differ in bike friendliness and traffic from roads in predominantly white neighborhoods. We may find that there is an uneven distribution of bike friendly roads in either neighborhood which could affect a driver's experience how to share the road with a bicyclist. No conclusions can be made with the data we have here. These are just possible things we could look into with more socio-ecenomic data.
 
-Rural crashes are on the top 20 predictors list with development type:
-farms, woods, pastures; non-city rural. The main take away from these
-results is that bicyclists are not being protected on rural roads where
-touring bicyclists spend most of their time. A recommendation that I
-have is to cities that book-end the roads that are most heavily traveled
-by bicyclists, invest in extending the shoulder of these roads and to
-include bike signs. This could later be added to the bike crash data as
-"bicycle improved rural road" and the treatment could be tested again
-roads that were not treated (control).
+Rural crashes are on the top 20 predictors list with development type: farms, woods, pastures; non-city rural. The main take away from these results is that bicyclists are not being protected on rural roads where touring bicyclists spend most of their time. A recommendation that I have is to cities that book-end the roads that are most heavily traveled by bicyclists, invest in extending the shoulder of these roads and to include bike signs. This could later be added to the bike crash data as "bicycle improved rural road" and the treatment could be tested again roads that were not treated (control).
