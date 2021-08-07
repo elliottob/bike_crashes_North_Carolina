@@ -110,19 +110,19 @@ Due to the imbalance of the target classes, 7.44% are serious injuries and 92.56
 
 After training the models on training data, optimum probability cut-off values will be explored using model predictions. The best probability cut-off will be determined based on the assumption that the cost of a false negative, predict non-serious injury when in-fact was a serious injury, is higher than a false positive, predict serious injury when in-fact was non-serious injury. The high cost for a false negative is higher because lives could potentially be lost or a life-changing injury, while the false positive only results in potentially spending more money on road safety for bicyclists which pays off in the long run anyways. Therefore, probability cut-offs will be chosen to optimize sensitivity (true positive rate) along with accuracy, with specificity (false negative rate) being the last priority. With this in mind, let's assume that we want to have as close to 75% for sensitivity. Specificity can be relaxed as low as 50%. The models that don't meet these criteria will not be included in an ensemble model.
 
-# Data Exploration
 
-## Data Prep and Cleaning
+
+# Data Prep and Cleaning
 
 data cleaning is done in this section using tidyverse methods.
 
-### Data Issues
+## Data Issues
 
 There are many issues with the data set not being tidy and clean. Some variables will need to be converted to a numerical datatype for the machine learning models to work properly. Categorical character columns will need to be converted to factors. Dummy variables will be created for every column that is not numerical. This will likely increase the number of features in the dataset to the scale of hundreds of features. Feature reduction will be carried out to reduce memory usage and computation time of fitting models. Feature reduction will be carried out by removing features that have little to no variability and will thus not contribute much information to the models being used. Additionally, features that have high correlation with other features will be removed to improve model performance.
 
 Some observations in the dataset that are missing data and these values have been imputed manually. For numerical missing data such as age missing values were imputed based on medians of age groups if age group variable is available, otherwise age was imputed using the median age of the full dataset based on the variable in question. For categorical variables, after being converted to dummy variables (i.e. 0 or 1 in value), missing values were imputed with a 0 to help in achieving a complete dataset as possible.
 
-#### Unneccessary variables
+## Unneccessary variables
 
 The following variables are obviously copies of other variables.
 
@@ -167,9 +167,9 @@ Note duplicate crash report for CrashID == 1041566349; note that only CrashLoc a
 ```{r echo=FALSE, message=FALSE, warning=FALSE }
 bike_crashes[duplicated(bike_crashes$CrashID), 'CrashID'] %>% 
   kable(caption = 'Duplicate Record CrashID')
-bike_crashes %>%
-  filter(CrashID == 104156349) %>%
-  glimpse()
+# bike_crashes %>%
+#   filter(CrashID == 104156349) %>%
+#   glimpse()
 ```
 
 ```{r echo=FALSE, message=FALSE, warning=FALSE }
@@ -189,9 +189,9 @@ bike_crashes <-
   )
 ```
 
-### General data preparation
+## Data cleaning
 
-Some observations in the dataset that are missing data and these values have been imputed manually. For numerical missing data such as age missing values were imputed based on medians of age groups if age group variable is available, otherwise age was imputed using the median age of the full dataset based on the variable in question. For categorical variables, after being converted to dummy variables (i.e. 0 or 1 in value), missing values were imputed with a 0 to help in achieving a complete dataset as possible.
+
 
 ```{r echo=FALSE, message=FALSE, warning=FALSE }
 #################
@@ -335,9 +335,10 @@ bike_crashes_clean <-
   )
 ```
 
-### Missing data
+## Missing data
 
-The amount of data missing throughout the dataset are noticeable and should imputed if possible. NumBics columns have the most missing data with 54.9% missing. It's unlikely that NumBics will be able to be imputed since majority values are missing.
+
+The amount of data missing throughout the dataset is noticeable and should imputed if possible. NumBics columns have the most missing data with 54.9% missing. It's unlikely that NumBics will be able to be imputed since majority values are missing.
 
 ```{r echo=FALSE, message=FALSE, warning=FALSE }
 # percent of missing data in each column
@@ -350,9 +351,9 @@ bike_crashes_clean %>%
   kable(caption = 'Variables with missing values')
 ```
 
-### Imputations
+## Imputations
 
-Missing age data is imputed based on median age of available age groups. If no age groups is available, The median age of the full dataset is used. If an NA was encountered on a binary (Yes/No) variable then "No" was assumed in order to make as many observations complete as possible to ensure complete cases.
+For numerical missing data such as age, missing values were imputed based on medians of age groups if age group variable is available, otherwise age was imputed using the median age of the full dataset based on the variable in question. For two-level categorical variables ("Yes"/"No"), missing values were imputed with a "No", indicating negative detection to help in achieving as complete a dataset as possible.
 
 ```{r echo=FALSE, message=FALSE, warning=FALSE }
 ######################
@@ -391,9 +392,9 @@ bike_crashes_clean <- bike_crashes_clean %>%
   ))
 ```
 
-### Exploratory Data Analysis
+# Exploratory Data Analysis
 
-#### Response Variable: Serious Bike Injury
+## Response Variable: Serious Bike Injury
 
 Let's take a look at a geographical map of the serious crashes in the data set. The geographical data is sourced from R's maps package. As it can be seen from the map below, a majority of the crashes seem to be occurring in counties where large cities are located.
 
@@ -471,7 +472,7 @@ bike_crashes_clean %>%
   kable(caption = 'Bike injury by locality', digits = 2)
 ```
 
-#### Explore numerical variables
+## Explore numerical variables
 
 NumUnits has very little variability and will likely be removed due to near-zero variance.
 
@@ -479,7 +480,7 @@ NumUnits has very little variability and will likely be removed due to near-zero
 numerical_features <- c('BikeAge', 'CrashHour', 'CrashYear', 
                         'DrvrAge', 'Latitude', 'Longitude', 'NumUnits')
 
-bike_crashes_clean %>%
+num_bar_plots <- bike_crashes_clean %>%
   select(numerical_features) %>%
   map_df(as.numeric) %>%
   imap(
@@ -497,13 +498,16 @@ bike_crashes_clean %>%
         ylab('var. values')
   )
 
+for(var in names(num_bar_plots)) {
+  print(num_bar_plots[[var]])
+}
 ```
 
-#### Explore categorical variables
+## Explore categorical variables
 
 Bar plots and top-20 summaries have been produced below for all categorical features that will be attempted to be included in the modeling process.
 
-A number of categorical features have unbalanced levels. Once factors are coverted to dummy variables, near-zero variance feature will be removed, thus helping by removing facors/levels that don't provide enough variability to inform the model. A percent unique values cutoff of 5% will be used to determine which feature levels are removed.
+A number of categorical features have unbalanced levels. Once factors are converted to dummy variables, near-zero variance feature will be removed, thus helping by removing facors/levels that don't provide enough variability to inform the model. A percent unique values cutoff of 5% will be used to determine which feature levels are removed.
 
 Notice that some features have too many levels to be viewed in a bar graph.\
 Therefore, those features' levels are displayed in a table of the top 20 levels by feature.
@@ -514,6 +518,7 @@ The following features CrashID, BikeInjuryCat will not be summarized as these fe
 categorical_features <- names(bike_crashes_clean)
 no_need_4_plot <- c(
   'BikeInjurySerious',
+  'BikeInjuryDisc',
   'CrashID',
   'BikeInjuryCat',
   'NumBicsAin',
@@ -541,7 +546,7 @@ categorical_features <- categorical_features[
   )
 ]
 
-bike_crashes_clean %>%
+cat_bar_plots <- bike_crashes_clean %>%
   select(categorical_features) %>%
   imap(
     ~ggplot(
@@ -551,13 +556,17 @@ bike_crashes_clean %>%
           data = tibble(.y := .x),
         ) + 
         geom_bar(aes(y = (..count..)/sum(..count..))) +
-        ggtitle(str_c(.y, ': factor level counts')) +
+        ggtitle(str_c(.y, ': Category Proportions')) +
         xlab(.y) +
         ylab('Relative frequency') +
         theme(axis.text.x = element_text(angle = 15, hjust = 1, size = 7))
   )
 
-bike_crashes_clean %>%
+for( var in names(cat_bar_plots)) {
+  print(cat_bar_plots[[var]])
+}
+
+top_levels <- bike_crashes_clean %>%
   select(for_tables) %>%
   map(summary) %>%
   map(
@@ -568,26 +577,31 @@ bike_crashes_clean %>%
   map(slice, 1:20) %>%
   imap(
     ~.x %>%
-      transmute(
+    transmute(
       !!.y := level,
       n = `.x`,
       pct = n / sum(n) * 100
     )
-  ) %>% 
-  imap(
-    ~kable(.x, caption = str_c('Top 20 levels for ', .y), digits = 2)
-  )
+  ) 
+
+# print out kabled tables
+for(var in names(top_levels)) {
+  print('\n')
+  print(kable(top_levels[[var]], caption = str_c('Top 20 levels for ', var), digits = 2))
+}
 ```
 
-# Pre-Processing and Model Setup
+# Pre-Processing and Feature Reduction
 
-Some variables will need to be converted to a numerical datatype for the machine learning models to work properly. Categorical character columns will need to be converted to factors. Dummy variables will be created for every column that is not numerical. This will likely increase the number of features in the dataset to the scale of hundreds of features.
+Some variables will need to be converted to a numerical datatype for the machine learning models to work properly. Categorical character columns will need to be converted to dummy variables (0, 1 vectors). This will increase the number of columns in the dataset to the scale of hundreds of features.
 
-Feature reduction will be carried out to reduce memory usage and computation time of fitting models. Feature reduction will be carried out by removing features are highly correlated or that have little to no variability and will thus not contribute much information to the models being used.
+Feature reduction will be carried out to reduce memory usage and computation time of fitting models. Feature reduction will be carried out by removing features are highly correlated since they will affect model convergence.  Features that are directly related to the response, BikeInjurySerious, will also be removed since those features would make the model results overly optimistic.  Finally, dummy variables with near-zero variance (<5% unique values) will be removed since they won't contribute much information to the model.
+
+Note that principal components analysis (PCA) will only be carried out for a linear model.  Therefore, this pre-processing step (PCA) will only be carried out in the pre-processing argument of a secondary linear model to compare with a non-PCA linear model.
 
 ## Create Dummy Variables
 
-convert categorical variables to dummy variables. Some name fixes will be required to make column names more consistent.If any binary features have NA's then replace with 0's to preserve largest complete dataset possible.
+All categorical variable levels are converted to dummy variables (0, 1 vectors). Some name fixes will be required to make column names more consistent. If any dummy variables have NA's then replace with 0's as explicit negative values to preserve largest complete dataset possible.
 
 ```{r create_dummies, echo=FALSE, message=FALSE, warning=FALSE}
 bike_crash_dummies_mdl <- dummyVars(
@@ -664,6 +678,13 @@ correlated_vars <- findCorrelation(
   names = TRUE
 )
 
+# print correlated variables
+tibble(
+  `Correlated Vars` = correlated_vars[1:21],
+  `Correlated Vars contin.` = correlated_vars[22:42]
+) %>% kable(
+  caption = 'Variables removed with high pairwise correlation (rho>0.75)',
+)
 # remove highly correlated variables of interest and zero var. variables
 bike_crash_dummies <- bike_crash_dummies %>%
   select(
@@ -690,18 +711,13 @@ bike_crash_dummies <- bike_crash_dummies %>%
   )
 ```
 
-## Save Datasets
-
-At this point dataset have been cleaned as much as possible. Save datasets.
-
 ```{r save_derived_data, echo=FALSE, message=FALSE, warning=FALSE}
+# At this point dataset have been cleaned as much as possible. Save datasets.
 saveRDS(bike_crashes_clean, './derived_data/bike_crashes_clean.rds')
 saveRDS(bike_crash_dummies, './derived_data/bike_crash_dummies.rds')
 # remove everything from the environment to releive memory
 rm(list = ls())
 ```
-
-# Model Development
 
 ## Create train and test dataset partitions
 
@@ -731,9 +747,9 @@ test_dat %>%
   kable(caption = 'Test data: response class summary')
 ```
 
-## Remove near-zero variance features
+## Remove near-zero variance features from training dataset
 
-Remove variables that have near-zero variance since they will likely not contribute much information to the classification models. Any variable that has less than 5% distinct values out of total number of samples will be removed.
+Remove variables that have near-zero variance since they will likely not contribute much information to the classification models. Any variable that has less than 5% distinct values out of total number of samples will be removed from the training dataset.
 
 ```{r near_zero_variance, echo=FALSE, message=FALSE, warning=FALSE}
 preproc_mdl <- preProcess(
@@ -783,9 +799,9 @@ Multiple models will be evaluated for performance based on ROC metric and by com
 
 The model predictors are selected based on caret's underlying training methodology. All final model's hyper-parameters and predictors will be chosen based on the optimum area under the ROC (i.e. AUC). AUC is a performance metric that will balance sensitivity (true positive rate) and specificity (true negative rate). AUC values range from 0 to 1 and a value of 1 considered a perfect classification model. hyper-parameter grid search is set to default which chooses hyper-parameters randomly.
 
-Repeated k-fold cross-validation will carried out on all models below. In some cases, the computation method is quite complex and is very slow to compute (e.g. random forests). In these cases, repeated cross-validation will be reduced to non-repeated cross-validation and/or the k in k-fold will be reduced.
+Repeated 10-fold cross-validation will carried out on all models below unless otherwise noted. In some cases, the computation method is quite complex and is very slow to compute (e.g. random forests). In these cases, repeated cross-validation will be reduced to non-repeated cross-validation.
 
-Since the prevalence of serious injury is so low (around 5%), up-sampling has been used to increase representation when k-fold cross validation occurs.
+Since the prevalence of serious injury is so low (around 5%), up-sampling has been used to increase representation when 10-fold cross validation occurs.
 
 All models will be run on the training dataset.
 
@@ -797,7 +813,7 @@ glmnet package is used for logistic regression with elastic-net penalty built-in
 
 ### Logistic (elastic-net) Model
 
-```{r logistic_model, echo=FALSE, message=FALSE, warning=FALSE}
+```{r logistic_model, echo=TRUE, message=FALSE, warning=FALSE}
 set.seed(42)
 # seeds to be used reproducable resampling
 seeds <- vector(mode = "list", length = 31)
@@ -852,7 +868,7 @@ print(log_time)
 
 ### Logistic Model (elastic-net) with PCA
 
-```{r logistic_PCA_model, echo=FALSE, message=FALSE, warning=FALSE}
+```{r logistic_PCA_model, echo=TRUE, message=FALSE, warning=FALSE}
 set.seed(42)
 
 #################################################################
@@ -885,11 +901,11 @@ print(log_PCA_time)
 
 ## Non-linear Classification Models
 
-In some cases, linear classifiers do not perform well when the response classes (i.e. serious, non-serious) do not have a linear relationship with the features. Put another way, linear classifiers can not produce a straight line in the feature space that separates the response classes. Below, naive Bayes classifier, neural network and random forest models are used. It would not be a good use of space to go into details of each of these models. R has plenty of documentation on each model if one is curious.
+In some cases, linear classifiers do not perform well when the response classes (i.e. serious, non-serious) do not have a linear relationship with the features. Put another way, linear classifiers can not produce a straight line in the feature space that separates the response classes. Below, naive Bayes classifier, neural network and random forest models are used.
 
 ### Naive Bayes Model
 
-```{r naive_bayes, echo=FALSE, message=FALSE, warning=FALSE}
+```{r naive_bayes, echo=TRUE, message=FALSE, warning=FALSE}
 set.seed(42)
 
 ###############
@@ -920,7 +936,10 @@ print(nb_time)
 
 ### K-nearest Neighbors Model
 
-```{r knn, echo=FALSE, message=FALSE, warning=FALSE}
+K-neareset neighbors is slow in computation but not as much as the random forests model.
+For this reason, the cross-validation has not been changed as it was for random forests (see below).
+
+```{r knn, echo=TRUE, message=FALSE, warning=FALSE}
 set.seed(42)
 
 ##################
@@ -949,7 +968,11 @@ print(knn_time)
 
 ### Random Forests Model
 
-```{r random_forests, echo=FALSE, message=FALSE, warning=FALSE}
+Random forests models are extremely computationally expensive and cross-validation
+on exacerbates this issue.  For this reason, repeated 10-fold cross-fold validation has been reduced
+to single 10-fold cross-validation to speed up the process.
+
+```{r random_forests, echo=TRUE, message=FALSE, warning=FALSE}
 set.seed(42)
 
 # random forests is the most computation intensive with repeatedcv
