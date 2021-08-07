@@ -191,7 +191,13 @@ bike_crashes <-
 
 ## Data cleaning
 
+In this section, all variables are cleaned in the following ways:
 
+*   categorical variable levels are carefully structured so that names are as consistent as possible
+*   "unknown", "missing" or "." values converted to explicit NA.
+*   ordinal categorical variables (e.g. months, days of the week, age groups, etc.) factor levels are ordered appropriately
+*   strings fixed to use less special characters
+*   derivation of response variable, BikeInjurySerious = "Serious" if "killed" or "suspected serious injury"
 
 ```{r echo=FALSE, message=FALSE, warning=FALSE }
 #################
@@ -476,7 +482,7 @@ bike_crashes_clean %>%
 
 NumUnits has very little variability and will likely be removed due to near-zero variance.
 
-```{r echo=FALSE, message=FALSE, warning=FALSE }
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width = 6, fig.height = 4}
 numerical_features <- c('BikeAge', 'CrashHour', 'CrashYear', 
                         'DrvrAge', 'Latitude', 'Longitude', 'NumUnits')
 
@@ -486,16 +492,15 @@ num_bar_plots <- bike_crashes_clean %>%
   imap(
     ~ggplot(
           aes(
-            x = !!.y,
+            x = '',
             y = .x
           ),
           data = tibble(.y := .x),
         ) + 
-        geom_boxplot(
-        ) +
-        ggtitle(.y) +
-        xlab(.y) + 
-        ylab('var. values')
+        geom_boxplot() +
+        ggtitle(str_c(.y, ': Box Plot')) +
+        ylab(.y) +
+        xlab('')
   )
 
 for(var in names(num_bar_plots)) {
@@ -514,7 +519,7 @@ Therefore, those features' levels are displayed in a table of the top 20 levels 
 
 The following features CrashID, BikeInjuryCat will not be summarized as these features will not be used in the modeling process. All features of the form "NumBics"X will not be since these features are missing more than 50% of values.
 
-```{r echo=FALSE, message=FALSE, warning=FALSE}
+```{r cat_features_bar_plots, echo=FALSE, message=FALSE, warning=FALSE, fig.width = 6, fig.height = 4}
 categorical_features <- names(bike_crashes_clean)
 no_need_4_plot <- c(
   'BikeInjurySerious',
@@ -565,7 +570,9 @@ cat_bar_plots <- bike_crashes_clean %>%
 for( var in names(cat_bar_plots)) {
   print(cat_bar_plots[[var]])
 }
+```
 
+```{r top_20_cat_levels, echo=FALSE, message=FALSE, warning=FALSE, results = 'asis'}
 top_levels <- bike_crashes_clean %>%
   select(for_tables) %>%
   map(summary) %>%
@@ -586,7 +593,6 @@ top_levels <- bike_crashes_clean %>%
 
 # print out kabled tables
 for(var in names(top_levels)) {
-  print('\n')
   print(kable(top_levels[[var]], caption = str_c('Top 20 levels for ', var), digits = 2))
 }
 ```
@@ -759,9 +765,10 @@ preproc_mdl <- preProcess(
   method = c(
     'nzv'
   ),
-  uniqueCut = 5 # % cutoff
+  # % cutoff
+  uniqueCut = 5 
 )
-# preproc_mdl$method
+print(str_c(length(preproc_mdl$method$remove), ' dummy variables removed for near-zero variance'))
 
 # run the preProcess predictions to create new dataset
 bike_crashes_preProcessed <- predict(
