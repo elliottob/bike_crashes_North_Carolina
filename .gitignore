@@ -5,6 +5,8 @@
 .Ruserdata
 # file names and extensions
 *.pdf
+# except output from main file
+!bike_crashes_analyses.pdf
 *.rds
 *.html
 # folders
